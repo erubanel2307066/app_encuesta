@@ -35,7 +35,9 @@ function normalizarNombre(nombre) {
   return nombre
     .toLowerCase()
     .replace(/mtro\.?/gi, '')
+    .replace(/mtra\.?/gi, '')
     .replace(/maestro/gi, '')
+    .replace(/maestra/gi, '')
     .replace(/profr\.?/gi, '')
     .replace(/prof\.?/gi, '')
     .replace(/profesor/gi, '')
