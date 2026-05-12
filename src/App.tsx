@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Trophy, Smile, Shield, BookOpen, Star, Send, ArrowLeft, Sparkles, MessageSquare, Medal, Crown, Loader2, AlertCircle } from 'lucide-react';
+import { Trophy, Smile, Shield, BookOpen, ClipboardCheck, Send, ArrowLeft, Sparkles, MessageSquare, Medal, Crown, Loader2, AlertCircle } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 
 // --- CONFIGURACIÓN DE SUPABASE (PRODUCCIÓN) ---
@@ -218,8 +218,8 @@ export default function App() {
             <div className="p-2 bg-white rounded-2xl shadow-md border-2 border-indigo-100 transform -rotate-6 hover:rotate-0 transition-transform">
               <img src="/logomiguel.png" alt="Logo Escuela" className="h-16 sm:h-20 w-auto" />
             </div>
-            <div className="inline-flex items-center justify-center p-3 bg-white rounded-full shadow-lg border-4 border-yellow-400 transform rotate-6 hover:rotate-0 transition-transform">
-              <Star size={32} className="text-yellow-400 fill-yellow-400 sm:w-10 sm:h-10" />
+            <div className="inline-flex items-center justify-center p-3 bg-white rounded-full shadow-lg border-4 border-indigo-400 transform rotate-6 hover:rotate-0 transition-transform">
+              <ClipboardCheck size={32} className="text-indigo-500 sm:w-10 sm:h-10" />
             </div>
           </div>
           
