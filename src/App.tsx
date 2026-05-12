@@ -61,88 +61,57 @@ export default function App() {
   // Estado para almacenar los votos reales desde Supabase
   const [votes, setVotes] = useState([]);
   
-  // Estado para el ranking agrupado
+  // Estado para el ranking agrupado desde la vista
   const [ranking, setRanking] = useState([]);
 
   const [showSuccessModal, setShowSuccessModal] = useState(false);
 
-  // --- LOGICA DE PROCESAMIENTO DEL RANKING ---
-  const procesarRanking = (votosActuales) => {
-    const teacherStats = {};
+  // --- ESCUCHAR DATOS EN TIEMPO REAL DESDE SUPABASE ---
+  // Extraemos fetchData fuera del useEffect para poder llamarlo de nuevo
+  const fetchData = async () => {
+    setIsLoadingData(true);
+    setDbError(null);
+    try {
+      // 1. Cargar el ranking pre-agrupado desde la vista
+      const { data: rankingData, error: rankingError } = await supabase
+        .from('teacher_ranking')
+        .select('*')
+        .order('puntos', { ascending: false });
+        
+      if (rankingError) throw rankingError;
+      setRanking(rankingData || []);
 
-    votosActuales.forEach(voto => {
-      // Usar la columna de la DB si existe, si no normalizar en el momento
-      const idNormalizado = voto.nombre_normalizado || normalizarNombre(voto.teacher_name);
-      if (!idNormalizado) return;
+      // 2. Cargar los votos individuales para mantener funcionales las categorías
+      const { data: votesData, error: votesError } = await supabase
+        .from('teacher_votes')
+        .select('*');
+        
+      if (votesError) throw votesError;
+      setVotes(votesData || []);
 
-      if (!teacherStats[idNormalizado]) {
-        teacherStats[idNormalizado] = {
-          name: voto.teacher_name,
-          totalPoints: 0,
-          categoryVotes: {},
-          reasons: []
-        };
-        CATEGORIES.forEach(cat => teacherStats[idNormalizado].categoryVotes[cat.id] = 0);
-      }
-
-      // Regla: Usar el nombre más largo/completo encontrado para mostrar
-      if (voto.teacher_name.length > teacherStats[idNormalizado].name.length) {
-        teacherStats[idNormalizado].name = voto.teacher_name;
-      }
-
-      teacherStats[idNormalizado].totalPoints += 10;
-      
-      if (voto.category_id) {
-          teacherStats[idNormalizado].categoryVotes[voto.category_id] = (teacherStats[idNormalizado].categoryVotes[voto.category_id] || 0) + 1;
-      }
-      
-      if (voto.reason) {
-          teacherStats[idNormalizado].reasons.push(voto.reason);
-      }
-    });
-
-    const arrayRanking = Object.values(teacherStats).sort((a, b) => b.totalPoints - a.totalPoints);
-    setRanking(arrayRanking);
+    } catch (error) {
+      console.error("Error al cargar datos:", error);
+      setDbError("No pudimos conectar con la base de datos.");
+    } finally {
+      setIsLoadingData(false);
+    }
   };
 
-  // Actualizar ranking cada vez que cambien los votos
-  useEffect(() => {
-    procesarRanking(votes);
-  }, [votes]);
-
-  // --- ESCUCHAR VOTOS EN TIEMPO REAL DESDE SUPABASE ---
   useEffect(() => {
     if (!isConfigured || !supabase) {
       setIsLoadingData(false);
       return;
     }
 
-    // 1. Cargar votos iniciales
-    const fetchVotes = async () => {
-      setIsLoadingData(true);
-      setDbError(null);
-      try {
-        const { data, error } = await supabase
-          .from('teacher_votes')
-          .select('*');
-          
-        if (error) throw error;
-        setVotes(data || []);
-      } catch (error) {
-        console.error("Error al cargar votos:", error);
-        setDbError("No pudimos conectar con la base de datos.");
-      } finally {
-        setIsLoadingData(false);
-      }
-    };
+    fetchData();
 
-    fetchVotes();
-
-    // 2. Suscribirse a cambios en tiempo real
+    // 3. Suscribirse a cambios en tiempo real
     const subscription = supabase
       .channel('public:teacher_votes')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'teacher_votes' }, payload => {
         setVotes(currentVotes => [...currentVotes, payload.new]);
+        // Recargar el ranking para que se actualice la vista
+        fetchData();
       })
       .subscribe();
 
@@ -191,7 +160,6 @@ export default function App() {
 
       setShowSuccessModal(true);
       
-      // Ocultar modal y volver al inicio
       setTimeout(() => {
         setShowSuccessModal(false);
         setCurrentView('home');
@@ -205,9 +173,9 @@ export default function App() {
     }
   };
 
-  // --- LA FÓRMULA MATEMÁTICA (RANKING Y GANADORES) ---
-  const { overall, categoryWinners } = useMemo(() => {
-    // 1. Agrupar por nombre_normalizado
+  // --- LA FÓRMULA MATEMÁTICA (SOLO GANADORES DE CATEGORÍA) ---
+  const categoryWinners = useMemo(() => {
+    // 1. Agrupar por nombre_normalizado para las categorías
     const teacherStats = {};
 
     votes.forEach(vote => {
@@ -217,7 +185,6 @@ export default function App() {
       if (!teacherStats[idNormalizado]) {
         teacherStats[idNormalizado] = {
           name: vote.teacher_name, // Nombre base
-          totalPoints: 0,
           categoryVotes: {},
         };
         CATEGORIES.forEach(cat => teacherStats[idNormalizado].categoryVotes[cat.id] = 0);
@@ -228,15 +195,12 @@ export default function App() {
         teacherStats[idNormalizado].name = vote.teacher_name;
       }
 
-      teacherStats[idNormalizado].totalPoints += 10;
-      
       if (vote.category_id) {
         teacherStats[idNormalizado].categoryVotes[vote.category_id] = (teacherStats[idNormalizado].categoryVotes[vote.category_id] || 0) + 1;
       }
     });
 
     const allTeachers = Object.values(teacherStats);
-    const topRanking = [...allTeachers].sort((a, b) => b.totalPoints - a.totalPoints);
 
     // 2. Calcular ganadores por categoría
     const winners = CATEGORIES.map(cat => {
@@ -253,7 +217,7 @@ export default function App() {
       return { ...cat, winner, topVotes, topReasons };
     });
 
-    return { overall: topRanking, categoryWinners: winners };
+    return winners;
   }, [votes]);
 
   return (
@@ -440,11 +404,11 @@ export default function App() {
                   </h2>
 
                   <div className="space-y-6">
-                    {leaderboard.overall.slice(0, 5).map((teacher, idx) => (
-                      <div key={teacher.name} className="relative flex items-center p-4 sm:p-5 bg-indigo-50 rounded-[2rem] overflow-hidden group border border-indigo-100">
+                    {ranking.slice(0, 5).map((teacher, idx) => (
+                      <div key={teacher.nombre_mostrado} className="relative flex items-center p-4 sm:p-5 bg-indigo-50 rounded-[2rem] overflow-hidden group border border-indigo-100">
                         <div 
                           className="absolute left-0 top-0 h-full bg-indigo-200/50 transition-all duration-1000 ease-out"
-                          style={{ width: `${Math.min((teacher.totalPoints / (leaderboard.overall[0]?.totalPoints || 1)) * 100, 100)}%` }}
+                          style={{ width: `${Math.min((teacher.puntos / (ranking[0]?.puntos || 1)) * 100, 100)}%` }}
                         ></div>
                         
                         <div className="relative z-10 flex items-center w-full">
@@ -456,31 +420,31 @@ export default function App() {
                             {idx + 1}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <h3 className="font-black text-lg sm:text-xl text-indigo-900 truncate">{teacher.name}</h3>
+                            <h3 className="font-black text-lg sm:text-xl text-indigo-900 truncate">{teacher.nombre_mostrado}</h3>
                           </div>
                           <div className="text-right ml-3 shrink-0 bg-white px-4 py-2 rounded-2xl shadow-md border border-indigo-100">
-                            <span className="font-black text-xl text-indigo-600">{teacher.totalPoints}</span>
+                            <span className="font-black text-xl text-indigo-600">{teacher.puntos}</span>
                             <span className="text-xs font-bold text-indigo-400 ml-1">PTS</span>
                           </div>
                         </div>
                       </div>
                     ))}
 
-                    {leaderboard.overall.length === 0 && (
+                    {ranking.length === 0 && (
                       <p className="text-center text-indigo-400 font-bold py-10 text-lg italic">¡Nadie ha votado todavía! Sé el primero en nominar. 🚀</p>
                     )}
                   </div>
                 </div>
 
                 {/* Ganadores por Categoría */}
-                {leaderboard.overall.length > 0 && (
+                {ranking.length > 0 && (
                   <>
                     <h2 className="text-2xl font-black text-center text-indigo-900 mt-16 mb-6 bg-white/50 py-3 rounded-full inline-block px-10 w-full shadow-md border border-indigo-100">
                       Ganadores por Categoría 🌟
                     </h2>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      {leaderboard.categoryWinners.map(cat => {
+                      {categoryWinners.map(cat => {
                         const Icon = cat.icon;
                         return (
                           <div key={cat.id} className="bg-white rounded-[2.5rem] overflow-hidden shadow-xl border-2 border-indigo-100 flex flex-col">
