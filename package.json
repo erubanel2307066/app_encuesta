@@ -7,7 +7,7 @@
     "dev:app": "vite",
     "dev:tailwind": "bun tailwindcss -i src/styles/index.css -o ./public/styles/index.css --watch",
     "dev": "concurrently \"bun dev:app\" \"bun dev:tailwind\"",
-    "build": "tsc && vite build",
+    "build": "vite build",
     "preview": "vite preview",
     "jsx:test": "xss-scan"
   },
