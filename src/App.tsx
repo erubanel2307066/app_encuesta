@@ -480,8 +480,8 @@ export default function App() {
         <footer className="mt-16 sm:mt-24 text-center text-indigo-900/40 pb-12 px-4 border-t border-indigo-200/50 pt-8">
           <p className="text-sm font-black mb-6 uppercase tracking-[0.2em] text-indigo-900/60">Desarrollado por</p>
           <div className="flex flex-col items-center justify-center gap-4">
-            <div className="bg-white p-3 rounded-2xl shadow-md border border-indigo-100 transform hover:scale-110 transition-transform">
-              <img src="/logomestro.png" alt="Logo Maestro" className="h-20 sm:h-28 w-auto" />
+            <div className="bg-white p-5 rounded-[2.5rem] shadow-xl border-2 border-indigo-100 transform hover:scale-105 transition-transform">
+              <img src="/logomestro.png" alt="Logo Maestro" className="h-40 sm:h-64 w-auto" />
             </div>
           </div>
         </footer>
