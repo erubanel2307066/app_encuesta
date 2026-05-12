@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "baseUrl": "./",
+    "rootDir": "./",
+    "paths": {
+      "$/*": ["src/*"]
+    },
+    "target": "esnext",
+    "lib": ["ESNext", "DOM"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "allowJs": true,
+    "checkJs": true,
+    "types": ["vite/client"]
+  },
+  "include": ["src"]
+}

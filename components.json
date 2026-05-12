@@ -1,0 +1,14 @@
+{
+  "$schema": "https://jsxpine.com/public/schema.json",
+  "tailwind": {
+    "config": "tailwind.config.js",
+    "css": "src/styles/index.css",
+    "baseColor": "slate"
+  },
+  "aliases": {
+    "common": "ui/common",
+    "components": "ui/components",
+    "scripts": "ui/scripts",
+    "alpine": "ui/scripts/alpine"
+  }
+}
