@@ -29,6 +29,29 @@ const CATEGORIES = [
   { id: 'strict', label: 'Estricto pero Justo ⚖️', icon: Shield, color: 'bg-violet-400', shadow: 'shadow-violet-300', text: 'text-violet-900', border: 'border-violet-500' },
 ];
 
+// Función para normalizar nombres y agrupar votos correctamente
+const normalizeName = (name) => {
+  if (!name) return '';
+  return name
+    .toLowerCase()
+    // Quitar títulos comunes
+    .replace(/mtro\.?/g, '')
+    .replace(/maestra/g, '')
+    .replace(/maestro/g, '')
+    .replace(/profr\.?/g, '')
+    .replace(/prof\.?/g, '')
+    .replace(/profesora/g, '')
+    .replace(/profesor/g, '')
+    .replace(/lic\.?/g, '')
+    // Quitar texto entre paréntesis (ej: materias)
+    .replace(/\(.*?\)/g, '')
+    // Quitar caracteres especiales
+    .replace(/[^\w\sáéíóúñ]/gi, '')
+    // Quitar espacios extra
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
 export default function App() {
   const [currentView, setCurrentView] = useState('home'); // home, voting, results
   const [selectedCategory, setSelectedCategory] = useState(null);
@@ -111,12 +134,14 @@ export default function App() {
       // Normalizar el nombre (ej: "alex" vs "Alex")
       const normalizedName = teacherName.trim().replace(/\b\w/g, l => l.toUpperCase());
 
+      // Nota: Si agregaste la columna 'normalized_name' en Supabase, 
+      // puedes incluirla aquí usando normalizeName(teacherName)
       const { error } = await supabase
         .from('teacher_votes')
         .insert([
           { 
-            category_id: selectedCategory.id, 
             teacher_name: normalizedName, 
+            category_id: selectedCategory.id, 
             reason: reason.trim() 
           }
         ]);
@@ -143,31 +168,33 @@ export default function App() {
   const leaderboard = useMemo(() => {
     const teacherStats = {};
 
-    // 1. Agrupar votos y calcular puntajes
+    // 1. Agrupar votos y calcular puntajes usando el nombre normalizado
     votes.forEach(vote => {
       if (!vote.teacher_name) return;
 
-      if (!teacherStats[vote.teacher_name]) {
-        teacherStats[vote.teacher_name] = {
-          name: vote.teacher_name,
+      const normalized = normalizeName(vote.teacher_name);
+
+      if (!teacherStats[normalized]) {
+        teacherStats[normalized] = {
+          name: vote.teacher_name, // Usamos el primer nombre original que aparezca para mostrar
           totalPoints: 0,
           categoryVotes: {},
           reasons: []
         };
-        CATEGORIES.forEach(cat => teacherStats[vote.teacher_name].categoryVotes[cat.id] = 0);
+        CATEGORIES.forEach(cat => teacherStats[normalized].categoryVotes[cat.id] = 0);
       }
 
-      // Sumar 10 puntos por nominación
-      teacherStats[vote.teacher_name].totalPoints += 10;
+      // Sumar 10 puntos por nominación al docente (basado en su nombre normalizado)
+      teacherStats[normalized].totalPoints += 10;
       
       // Sumar voto a la categoría
       if (vote.category_id) {
-          teacherStats[vote.teacher_name].categoryVotes[vote.category_id] = (teacherStats[vote.teacher_name].categoryVotes[vote.category_id] || 0) + 1;
+          teacherStats[normalized].categoryVotes[vote.category_id] = (teacherStats[normalized].categoryVotes[vote.category_id] || 0) + 1;
       }
       
       // Guardar razón
       if (vote.reason) {
-          teacherStats[vote.teacher_name].reasons.push(vote.reason);
+          teacherStats[normalized].reasons.push(vote.reason);
       }
     });
 
@@ -178,16 +205,21 @@ export default function App() {
 
     // 3. Calcular ganadores por categoría
     const categoryWinners = CATEGORIES.map(cat => {
+      // Ordenar maestros por cuántos votos tienen en ESTA categoría específica
       const sortedInCat = [...allTeachers].sort((a, b) => (b.categoryVotes[cat.id] || 0) - (a.categoryVotes[cat.id] || 0));
       const topVotes = sortedInCat.length > 0 ? (sortedInCat[0].categoryVotes[cat.id] || 0) : 0;
       const winner = topVotes > 0 ? sortedInCat[0] : null;
+      
+      // Buscar las razones originales de los votos que pertenecen a este ganador en esta categoría
+      const topReasons = winner ? votes.filter(v => {
+        return normalizeName(v.teacher_name) === normalizeName(winner.name) && v.category_id === cat.id;
+      }).map(v => v.reason).slice(-2).reverse() : [];
       
       return { 
         ...cat, 
         winner, 
         topVotes,
-        // Traemos las últimas 2 razones para mostrar en pantalla
-        topReasons: winner ? votes.filter(v => v.category_id === cat.id && v.teacher_name === winner.name).map(v => v.reason).slice(-2).reverse() : []
+        topReasons
       };
     });
 
