@@ -478,15 +478,10 @@ export default function App() {
 
         {/* --- FOOTER --- */}
         <footer className="mt-16 sm:mt-24 text-center text-indigo-900/40 pb-12 px-4 border-t border-indigo-200/50 pt-8">
-          <p className="text-sm font-black mb-6 uppercase tracking-[0.2em] text-indigo-900/60">Desarrollado por CODIGO- MAESTRO</p>
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-6">
+          <p className="text-sm font-black mb-6 uppercase tracking-[0.2em] text-indigo-900/60">Desarrollado por</p>
+          <div className="flex flex-col items-center justify-center gap-4">
             <div className="bg-white p-2 rounded-xl shadow-md border border-indigo-100 transform hover:scale-110 transition-transform">
-              <img src="/logomestro.png" alt="Logo Maestro" className="h-10 sm:h-12 w-auto" />
-            </div>
-            <div className="hidden sm:block w-[2px] h-10 bg-indigo-300/40 rounded-full"></div>
-            <div className="flex flex-col items-center sm:items-start">
-              <span className="text-base sm:text-lg font-black text-indigo-900/70">Erubanel Gallo Casiano</span>
-              <span className="text-xs sm:text-sm font-bold text-indigo-400 uppercase tracking-widest -mt-1">CEO</span>
+              <img src="/logomestro.png" alt="Logo Maestro" className="h-12 sm:h-16 w-auto" />
             </div>
           </div>
         </footer>
