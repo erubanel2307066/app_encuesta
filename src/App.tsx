@@ -29,28 +29,21 @@ const CATEGORIES = [
   { id: 'strict', label: 'Estricto pero Justo ⚖️', icon: Shield, color: 'bg-violet-400', shadow: 'shadow-violet-300', text: 'text-violet-900', border: 'border-violet-500' },
 ];
 
-// Función para normalizar nombres y agrupar votos correctamente
-const normalizeName = (name) => {
-  if (!name) return '';
-  return name
+// Función para normalizar nombres (Elimina títulos, paréntesis y estandariza texto)
+function normalizarNombre(nombre) {
+  if (!nombre) return '';
+  return nombre
     .toLowerCase()
-    // Quitar títulos comunes
-    .replace(/mtro\.?/g, '')
-    .replace(/maestra/g, '')
-    .replace(/maestro/g, '')
-    .replace(/profr\.?/g, '')
-    .replace(/prof\.?/g, '')
-    .replace(/profesora/g, '')
-    .replace(/profesor/g, '')
-    .replace(/lic\.?/g, '')
-    // Quitar texto entre paréntesis (ej: materias)
+    .replace(/mtro\.?/gi, '')
+    .replace(/maestro/gi, '')
+    .replace(/profr\.?/gi, '')
+    .replace(/prof\.?/gi, '')
+    .replace(/profesor/gi, '')
     .replace(/\(.*?\)/g, '')
-    // Quitar caracteres especiales
-    .replace(/[^\w\sáéíóúñ]/gi, '')
-    // Quitar espacios extra
+    .replace(/[^\w\s]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
-};
+}
 
 export default function App() {
   const [currentView, setCurrentView] = useState('home'); // home, voting, results
@@ -65,8 +58,55 @@ export default function App() {
   
   // Estado para almacenar los votos reales desde Supabase
   const [votes, setVotes] = useState([]);
+  
+  // Estado para el ranking agrupado
+  const [ranking, setRanking] = useState([]);
 
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+
+  // --- LOGICA DE PROCESAMIENTO DEL RANKING ---
+  const procesarRanking = (votosActuales) => {
+    const teacherStats = {};
+
+    votosActuales.forEach(voto => {
+      // Usar la columna de la DB si existe, si no normalizar en el momento
+      const idNormalizado = voto.nombre_normalizado || normalizarNombre(voto.teacher_name);
+      if (!idNormalizado) return;
+
+      if (!teacherStats[idNormalizado]) {
+        teacherStats[idNormalizado] = {
+          name: voto.teacher_name,
+          totalPoints: 0,
+          categoryVotes: {},
+          reasons: []
+        };
+        CATEGORIES.forEach(cat => teacherStats[idNormalizado].categoryVotes[cat.id] = 0);
+      }
+
+      // Regla: Usar el nombre más largo/completo encontrado para mostrar
+      if (voto.teacher_name.length > teacherStats[idNormalizado].name.length) {
+        teacherStats[idNormalizado].name = voto.teacher_name;
+      }
+
+      teacherStats[idNormalizado].totalPoints += 10;
+      
+      if (voto.category_id) {
+          teacherStats[idNormalizado].categoryVotes[voto.category_id] = (teacherStats[idNormalizado].categoryVotes[voto.category_id] || 0) + 1;
+      }
+      
+      if (voto.reason) {
+          teacherStats[idNormalizado].reasons.push(voto.reason);
+      }
+    });
+
+    const arrayRanking = Object.values(teacherStats).sort((a, b) => b.totalPoints - a.totalPoints);
+    setRanking(arrayRanking);
+  };
+
+  // Actualizar ranking cada vez que cambien los votos
+  useEffect(() => {
+    procesarRanking(votes);
+  }, [votes]);
 
   // --- ESCUCHAR VOTOS EN TIEMPO REAL DESDE SUPABASE ---
   useEffect(() => {
@@ -100,7 +140,6 @@ export default function App() {
     const subscription = supabase
       .channel('public:teacher_votes')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'teacher_votes' }, payload => {
-        // Cuando alguien más vota, agregamos el voto a la lista sin recargar
         setVotes(currentVotes => [...currentVotes, payload.new]);
       })
       .subscribe();
@@ -131,16 +170,16 @@ export default function App() {
     setIsSubmitting(true);
 
     try {
-      // Normalizar el nombre (ej: "alex" vs "Alex")
-      const normalizedName = teacherName.trim().replace(/\b\w/g, l => l.toUpperCase());
+      // Capitalizar nombre original para guardado
+      const originalName = teacherName.trim().replace(/\b\w/g, l => l.toUpperCase());
+      const normalizedName = normalizarNombre(teacherName);
 
-      // Nota: Si agregaste la columna 'normalized_name' en Supabase, 
-      // puedes incluirla aquí usando normalizeName(teacherName)
       const { error } = await supabase
         .from('teacher_votes')
         .insert([
           { 
-            teacher_name: normalizedName, 
+            teacher_name: originalName, 
+            nombre_normalizado: normalizedName,
             category_id: selectedCategory.id, 
             reason: reason.trim() 
           }
@@ -164,66 +203,55 @@ export default function App() {
     }
   };
 
-  // --- LA FÓRMULA MATEMÁTICA ---
-  const leaderboard = useMemo(() => {
+  // --- LA FÓRMULA MATEMÁTICA (RANKING Y GANADORES) ---
+  const { overall, categoryWinners } = useMemo(() => {
+    // 1. Agrupar por nombre_normalizado
     const teacherStats = {};
 
-    // 1. Agrupar votos y calcular puntajes usando el nombre normalizado
     votes.forEach(vote => {
-      if (!vote.teacher_name) return;
+      const idNormalizado = vote.nombre_normalizado || normalizarNombre(vote.teacher_name);
+      if (!idNormalizado) return;
 
-      const normalized = normalizeName(vote.teacher_name);
-
-      if (!teacherStats[normalized]) {
-        teacherStats[normalized] = {
-          name: vote.teacher_name, // Usamos el primer nombre original que aparezca para mostrar
+      if (!teacherStats[idNormalizado]) {
+        teacherStats[idNormalizado] = {
+          name: vote.teacher_name, // Nombre base
           totalPoints: 0,
           categoryVotes: {},
-          reasons: []
         };
-        CATEGORIES.forEach(cat => teacherStats[normalized].categoryVotes[cat.id] = 0);
+        CATEGORIES.forEach(cat => teacherStats[idNormalizado].categoryVotes[cat.id] = 0);
       }
 
-      // Sumar 10 puntos por nominación al docente (basado en su nombre normalizado)
-      teacherStats[normalized].totalPoints += 10;
-      
-      // Sumar voto a la categoría
-      if (vote.category_id) {
-          teacherStats[normalized].categoryVotes[vote.category_id] = (teacherStats[normalized].categoryVotes[vote.category_id] || 0) + 1;
+      // REGLA: Usar el nombre más completo (largo) encontrado
+      if (vote.teacher_name && vote.teacher_name.length > teacherStats[idNormalizado].name.length) {
+        teacherStats[idNormalizado].name = vote.teacher_name;
       }
+
+      teacherStats[idNormalizado].totalPoints += 10;
       
-      // Guardar razón
-      if (vote.reason) {
-          teacherStats[normalized].reasons.push(vote.reason);
+      if (vote.category_id) {
+        teacherStats[idNormalizado].categoryVotes[vote.category_id] = (teacherStats[idNormalizado].categoryVotes[vote.category_id] || 0) + 1;
       }
     });
 
     const allTeachers = Object.values(teacherStats);
+    const topRanking = [...allTeachers].sort((a, b) => b.totalPoints - a.totalPoints);
 
-    // 2. Ordenar para el Top General
-    const overall = [...allTeachers].sort((a, b) => b.totalPoints - a.totalPoints);
-
-    // 3. Calcular ganadores por categoría
-    const categoryWinners = CATEGORIES.map(cat => {
-      // Ordenar maestros por cuántos votos tienen en ESTA categoría específica
+    // 2. Calcular ganadores por categoría
+    const winners = CATEGORIES.map(cat => {
       const sortedInCat = [...allTeachers].sort((a, b) => (b.categoryVotes[cat.id] || 0) - (a.categoryVotes[cat.id] || 0));
       const topVotes = sortedInCat.length > 0 ? (sortedInCat[0].categoryVotes[cat.id] || 0) : 0;
       const winner = topVotes > 0 ? sortedInCat[0] : null;
       
-      // Buscar las razones originales de los votos que pertenecen a este ganador en esta categoría
       const topReasons = winner ? votes.filter(v => {
-        return normalizeName(v.teacher_name) === normalizeName(winner.name) && v.category_id === cat.id;
+        const vNorm = v.nombre_normalizado || normalizarNombre(v.teacher_name);
+        const wNorm = normalizarNombre(winner.name);
+        return vNorm === wNorm && v.category_id === cat.id;
       }).map(v => v.reason).slice(-2).reverse() : [];
       
-      return { 
-        ...cat, 
-        winner, 
-        topVotes,
-        topReasons
-      };
+      return { ...cat, winner, topVotes, topReasons };
     });
 
-    return { overall, categoryWinners };
+    return { overall: topRanking, categoryWinners: winners };
   }, [votes]);
 
   return (
