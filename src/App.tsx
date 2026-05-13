@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Trophy, Smile, Shield, BookOpen, ClipboardCheck, Send, ArrowLeft, Sparkles, MessageSquare, Medal, Crown, Loader2, AlertCircle } from 'lucide-react';
+import { Trophy, Smile, Shield, BookOpen, ClipboardCheck, Send, ArrowLeft, Sparkles, MessageSquare, Medal, Crown, Loader2, AlertCircle, Search } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import FingerprintJS from '@fingerprintjs/fingerprintjs';
 import CountdownBanner from './ui/components/CountdownBanner';
@@ -43,6 +43,7 @@ function normalizarNombre(nombre) {
     .replace(/maestra/gi, '')
     .replace(/profr\.?/gi, '')
     .replace(/prof\.?/gi, '')
+    .replace(/profe/gi, '')
     .replace(/profesor/gi, '')
     .replace(/\(.*?\)/g, '')
     .replace(/[^\w\s]/g, '')
@@ -113,6 +114,45 @@ export default function App() {
   const [ranking, setRanking] = useState([]);
   // categoryRanking: [{ category_id: string, maestro_oficial: string, votos: number, reasons: string[] }]
   const [categoryRanking, setCategoryRanking] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  // --- LÓGICA DE AUTOCOMPLETE Y FUZZY SEARCH ---
+  const suggestions = React.useMemo(() => {
+    if (!teacherName.trim() || teacherName.length < 2) return [];
+
+    const normalizedInput = normalizarNombre(teacherName);
+    if (!normalizedInput) return [];
+
+    return officialTeachers
+      .map(t => {
+        const officialName = t.nombre_oficial;
+        const officialNorm = normalizarNombre(officialName);
+        let score = 0;
+
+        // 1. Coincidencia Exacta (puntos máximos)
+        if (officialNorm === normalizedInput) score += 100;
+        
+        // 2. Empieza con el texto ingresado
+        if (officialNorm.startsWith(normalizedInput)) score += 50;
+
+        // 3. Contiene el texto ingresado
+        if (officialNorm.includes(normalizedInput)) score += 20;
+
+        // 4. Coincidencia por palabras individuales
+        const inputWords = normalizedInput.split(' ').filter(w => w.length > 1);
+        const officialWords = officialNorm.split(' ');
+        
+        inputWords.forEach(iw => {
+          if (officialWords.some(ow => ow.startsWith(iw))) score += 15;
+          else if (officialWords.some(ow => ow.includes(iw))) score += 5;
+        });
+
+        return { name: officialName, score };
+      })
+      .filter(t => t.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 6); // Mostrar hasta 6 sugerencias
+  }, [teacherName, officialTeachers]);
 
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   
@@ -473,17 +513,68 @@ export default function App() {
                   </div>
 
                   <form onSubmit={handleSubmitVote} className="space-y-6">
-                    <div>
-                      <label className="block text-indigo-900 font-bold mb-2 ml-2 text-xl">¿A quién nominas?</label>
-                      <input 
-                        type="text"
-                        value={teacherName}
-                        onChange={(e) => setTeacherName(e.target.value)}
-                        placeholder="Ej. Juan Pérez García"
-                        className="w-full text-lg px-6 py-4 rounded-2xl bg-indigo-50 border-2 border-indigo-100 focus:border-indigo-400 focus:bg-white outline-none transition-all placeholder:text-indigo-300 font-semibold text-indigo-900 shadow-inner"
-                        required
-                        disabled={isSubmitting || !isConfigured}
-                      />
+                    <div className="relative group">
+                      <label className="block text-indigo-900 font-bold mb-2 ml-2 text-xl flex items-center gap-2">
+                        <Search size={20} className="text-indigo-400" />
+                        ¿A quién nominas?
+                      </label>
+                      <div className="relative">
+                        <input 
+                          type="text"
+                          value={teacherName}
+                          onChange={(e) => {
+                            setTeacherName(e.target.value);
+                            setShowSuggestions(true);
+                          }}
+                          onFocus={() => setShowSuggestions(true)}
+                          onBlur={() => {
+                            // Delay to allow clicking on suggestions
+                            setTimeout(() => setShowSuggestions(false), 200);
+                          }}
+                          placeholder="Ej. Juan Pérez García"
+                          className="w-full text-lg px-6 py-4 rounded-2xl bg-indigo-50 border-2 border-indigo-100 focus:border-indigo-400 focus:bg-white outline-none transition-all placeholder:text-indigo-300 font-semibold text-indigo-900 shadow-inner pr-12"
+                          required
+                          disabled={isSubmitting || !isConfigured}
+                          autoComplete="off"
+                        />
+                        <div className="absolute right-4 top-1/2 -translate-y-1/2 text-indigo-200 group-focus-within:text-indigo-400 transition-colors">
+                          <BookOpen size={24} />
+                        </div>
+                      </div>
+
+                      {/* DROPDOWN DE SUGERENCIAS */}
+                      {showSuggestions && suggestions.length > 0 && (
+                        <div className="absolute z-[60] left-0 right-0 mt-2 bg-white rounded-2xl shadow-2xl border-2 border-indigo-100 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                          <div className="p-2 bg-indigo-50/50 border-b border-indigo-100 flex items-center justify-between">
+                            <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest ml-2">Sugerencias encontradas</span>
+                            <Sparkles size={14} className="text-indigo-300 mr-2" />
+                          </div>
+                          <ul className="max-h-60 overflow-y-auto py-1">
+                            {suggestions.map((suggestion, idx) => (
+                              <li key={idx}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setTeacherName(suggestion.name);
+                                    setShowSuggestions(false);
+                                  }}
+                                  className="w-full text-left px-5 py-3.5 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-between group/item"
+                                >
+                                  <div className="flex flex-col">
+                                    <span className="font-bold text-indigo-900 group-hover/item:text-white transition-colors">
+                                      {suggestion.name}
+                                    </span>
+                                    <span className="text-xs text-indigo-400 group-hover/item:text-indigo-100 font-medium">
+                                      Maestro Oficial
+                                    </span>
+                                  </div>
+                                  <Medal size={18} className="text-indigo-200 group-hover/item:text-yellow-300 transition-colors" />
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
 
                     <div>
