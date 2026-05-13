@@ -131,7 +131,8 @@ export default function App() {
   }, []);
 
   // --- ESCUCHAR DATOS EN TIEMPO REAL DESDE SUPABASE ---
-  const fetchData = async () => {
+  // --- CARGAR DATOS QUE SOLO SE NECESITAN UNA VEZ ---
+  const fetchInitialData = async () => {
     setIsLoadingData(true);
     setDbError(null);
     try {
@@ -142,31 +143,7 @@ export default function App() {
       if (teachersError) throw teachersError;
       setOfficialTeachers(teachersData || []);
 
-      // 2. Ranking General (agrupado por maestro_oficial en Supabase)
-      const { data: rankingData, error: rankingError } = await supabase
-        .from('teacher_ranking')
-        .select('*')
-        .order('puntos', { ascending: false });
-      if (rankingError) throw rankingError;
-      
-      console.log("Datos reales del ranking:", rankingData); // Para debug
-      
-      setRanking(rankingData || []);
-
-      // 3. Ranking por Categorías (agrupado por maestro_oficial en Supabase)
-      const { data: catRankingData, error: catRankingError } = await supabase
-        .from('category_ranking')
-        .select('*')
-        .order('votos', { ascending: false });
-      
-      // Si la vista aún no existe, no rompemos la app, solo atrapamos el error
-      if (catRankingError) {
-        console.warn("Vista category_ranking no encontrada, se usará cálculo local.", catRankingError);
-      } else {
-        setCategoryRanking(catRankingData || []);
-      }
-
-      // 4. Votos individuales (necesario para las justificaciones / reasons si la vista no lo tiene)
+      // 2. Votos individuales (necesario para las justificaciones / reasons)
       const { data: votesData, error: votesError } = await supabase
         .from('teacher_votes')
         .select('*');
@@ -174,10 +151,35 @@ export default function App() {
       setVotes(votesData || []);
 
     } catch (error) {
-      console.error("Error al cargar datos:", error);
+      console.error("Error al cargar datos iniciales:", error);
       setDbError("No pudimos conectar con la base de datos.");
     } finally {
       setIsLoadingData(false);
+    }
+  };
+
+  // --- CARGAR VISTAS DE RANKING (Se llama al inicio y en cada nuevo voto) ---
+  const fetchRankings = async () => {
+    try {
+      // Ranking General
+      const { data: rankingData, error: rankingError } = await supabase
+        .from('teacher_ranking')
+        .select('*')
+        .order('puntos', { ascending: false });
+      if (rankingError) throw rankingError;
+      setRanking(rankingData || []);
+
+      // Ranking por Categorías
+      const { data: catRankingData, error: catRankingError } = await supabase
+        .from('category_ranking')
+        .select('*')
+        .order('votos', { ascending: false });
+      
+      if (!catRankingError) {
+        setCategoryRanking(catRankingData || []);
+      }
+    } catch (error) {
+      console.error("Error al recargar rankings:", error);
     }
   };
 
@@ -187,15 +189,20 @@ export default function App() {
       return;
     }
 
-    fetchData();
+    // Carga inicial
+    fetchInitialData().then(() => {
+      fetchRankings();
+    });
 
-    // 3. Suscribirse a cambios en tiempo real
+    // Suscribirse a cambios en tiempo real
     const subscription = supabase
       .channel('public:teacher_votes')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'teacher_votes' }, payload => {
+        // 1. Actualizamos localmente los votos crudos sin hacer fetch a la DB entera
         setVotes(currentVotes => [...currentVotes, payload.new]);
-        // Recargar el ranking para que se actualice la vista
-        fetchData();
+        
+        // 2. Recargamos SOLO las vistas agregadas que cambiaron
+        fetchRankings();
       })
       .subscribe();
 
