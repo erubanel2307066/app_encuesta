@@ -396,7 +396,7 @@ export default function App() {
                         type="text"
                         value={teacherName}
                         onChange={(e) => setTeacherName(e.target.value)}
-                        placeholder="Ej. Mtra. Carmen (Biología)"
+                        placeholder="Ej. Juan Pérez García"
                         className="w-full text-lg px-6 py-4 rounded-2xl bg-indigo-50 border-2 border-indigo-100 focus:border-indigo-400 focus:bg-white outline-none transition-all placeholder:text-indigo-300 font-semibold text-indigo-900 shadow-inner"
                         required
                         disabled={isSubmitting || !isConfigured}
