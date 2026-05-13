@@ -130,6 +130,9 @@ export default function App() {
         .select('*')
         .order('puntos', { ascending: false });
       if (rankingError) throw rankingError;
+      
+      console.log("Datos reales del ranking:", rankingData); // Para debug
+      
       setRanking(rankingData || []);
 
       // 3. Ranking por Categorías (agrupado por maestro_oficial en Supabase)
@@ -438,7 +441,7 @@ export default function App() {
 
                   <div className="space-y-6">
                     {ranking.slice(0, 5).map((teacher, idx) => (
-                      <div key={teacher.nombre_mostrado} className="relative flex items-center p-4 sm:p-5 bg-indigo-50 rounded-[2rem] overflow-hidden group border border-indigo-100">
+                      <div key={teacher.maestro_oficial || idx} className="relative flex items-center p-4 sm:p-5 bg-indigo-50 rounded-[2rem] overflow-hidden group border border-indigo-100">
                         <div 
                           className="absolute left-0 top-0 h-full bg-indigo-200/50 transition-all duration-1000 ease-out"
                           style={{ width: `${Math.min((teacher.puntos / (ranking[0]?.puntos || 1)) * 100, 100)}%` }}
@@ -453,7 +456,7 @@ export default function App() {
                             {idx + 1}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <h3 className="font-black text-lg sm:text-xl text-indigo-900 truncate">{teacher.nombre_mostrado}</h3>
+                            <h3 className="font-black text-lg sm:text-xl text-indigo-900 truncate">{teacher.maestro_oficial}</h3>
                           </div>
                           <div className="text-right ml-3 shrink-0 bg-white px-4 py-2 rounded-2xl shadow-md border border-indigo-100">
                             <span className="font-black text-xl text-indigo-600">{teacher.puntos}</span>
