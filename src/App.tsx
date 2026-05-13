@@ -2,6 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Trophy, Smile, Shield, BookOpen, ClipboardCheck, Send, ArrowLeft, Sparkles, MessageSquare, Medal, Crown, Loader2, AlertCircle } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import FingerprintJS from '@fingerprintjs/fingerprintjs';
+import CountdownBanner from './ui/components/CountdownBanner';
+
 
 // --- CONFIGURACIÓN DE SUPABASE (PRODUCCIÓN) ---
 // Vite usa import.meta.env para leer las variables del archivo .env o de Render
@@ -349,6 +351,11 @@ export default function App() {
             </div>
           </div>
         </header>
+
+        {/* --- CONTADOR DE CIERRE --- */}
+        <div className="mb-12">
+          <CountdownBanner />
+        </div>
 
         {/* --- NAVEGACIÓN --- */}
         {currentView !== 'voting' && (
