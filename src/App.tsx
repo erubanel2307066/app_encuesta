@@ -249,17 +249,21 @@ export default function App() {
       // Coincidencia inteligente contra el catálogo oficial
       const oficialMatch = findOfficialTeacher(teacherName, officialTeachers);
 
+      console.log("Fingerprint generado:", visitorId);
+
+      const payload = { 
+        teacher_name: originalName, 
+        maestro_oficial: oficialMatch, // El nombre detectado (o fallback al original normalizado)
+        category_id: selectedCategory.id, 
+        reason: reason.trim(),
+        device_fingerprint: visitorId
+      };
+
+      console.log("Payload enviado:", payload);
+
       const { error } = await supabase
         .from('teacher_votes')
-        .insert([
-          { 
-            teacher_name: originalName, 
-            maestro_oficial: oficialMatch, // El nombre detectado (o fallback al original normalizado)
-            category_id: selectedCategory.id, 
-            reason: reason.trim(),
-            device_fingerprint: visitorId
-          }
-        ]);
+        .insert([payload]);
 
       if (error) throw error;
 
