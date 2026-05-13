@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Trophy, Smile, Shield, BookOpen, ClipboardCheck, Send, ArrowLeft, Sparkles, MessageSquare, Medal, Crown, Loader2, AlertCircle } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
+import FingerprintJS from '@fingerprintjs/fingerprintjs';
 
 // --- CONFIGURACIÓN DE SUPABASE (PRODUCCIÓN) ---
 // Vite usa import.meta.env para leer las variables del archivo .env o de Render
@@ -111,6 +112,23 @@ export default function App() {
   const [votes, setVotes] = useState([]); // Mantenemos para 'reasons' si la vista no lo tiene
 
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  
+  // Antifraude
+  const [visitorId, setVisitorId] = useState(null);
+
+  useEffect(() => {
+    const initFingerprint = async () => {
+      try {
+        const fp = await FingerprintJS.load();
+        const result = await fp.get();
+        setVisitorId(result.visitorId);
+        console.log("Fingerprint:", result.visitorId);
+      } catch (error) {
+        console.error("Error inicializando FingerprintJS:", error);
+      }
+    };
+    initFingerprint();
+  }, []);
 
   // --- ESCUCHAR DATOS EN TIEMPO REAL DESDE SUPABASE ---
   const fetchData = async () => {
@@ -207,6 +225,24 @@ export default function App() {
     setIsSubmitting(true);
 
     try {
+      // Validación Antifraude
+      if (visitorId) {
+        const { data: existingVote, error: checkError } = await supabase
+          .from('teacher_votes')
+          .select('id')
+          .eq('device_fingerprint', visitorId)
+          .eq('category_id', selectedCategory.id)
+          .limit(1);
+
+        if (checkError) {
+          console.error("Error validando voto previo:", checkError);
+        } else if (existingVote && existingVote.length > 0) {
+          alert("Ya realizaste una votación en esta categoría.");
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       // Nombre original escrito por el usuario
       const originalName = teacherName.trim().replace(/\b\w/g, l => l.toUpperCase());
       
@@ -220,7 +256,8 @@ export default function App() {
             teacher_name: originalName, 
             maestro_oficial: oficialMatch, // El nombre detectado (o fallback al original normalizado)
             category_id: selectedCategory.id, 
-            reason: reason.trim() 
+            reason: reason.trim(),
+            device_fingerprint: visitorId
           }
         ]);
 

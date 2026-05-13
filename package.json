@@ -25,6 +25,7 @@
   "dependencies": {
     "@alpinejs/collapse": "^3.14.9",
     "@alpinejs/focus": "^3.14.9",
+    "@fingerprintjs/fingerprintjs": "^5.2.0",
     "@iconify-json/ri": "^1.2.5",
     "@iconify/utils": "^2.3.0",
     "@kitajs/html": "^4.2.7",
