@@ -47,6 +47,52 @@ function normalizarNombre(nombre) {
     .trim();
 }
 
+// Función para coincidencia inteligente (Fuzzy Matching)
+const findOfficialTeacher = (inputName, officialTeachers) => {
+  const normalizedInput = normalizarNombre(inputName);
+  if (!normalizedInput || !officialTeachers || officialTeachers.length === 0) return normalizedInput;
+
+  let bestMatch = null;
+  let maxScore = 0;
+
+  const inputWords = normalizedInput.split(' ').filter(w => w.length > 2);
+
+  for (const teacher of officialTeachers) {
+    const officialNorm = normalizarNombre(teacher.nombre_oficial);
+    let score = 0;
+
+    // 1. Coincidencia Exacta (después de normalizar)
+    if (officialNorm === normalizedInput) {
+      return teacher.nombre_oficial;
+    }
+
+    // 2. Coincidencia por Inclusión (ej. "Mauro Lorenzo" en "Mauro Lorenzo Morales")
+    if (officialNorm.includes(normalizedInput) || normalizedInput.includes(officialNorm)) {
+      score += 10;
+    }
+
+    // 3. Coincidencia por Palabras
+    const officialWords = officialNorm.split(' ');
+    let wordsMatched = 0;
+    for (const word of inputWords) {
+      if (officialWords.some(ow => ow.includes(word) || word.includes(ow))) {
+        wordsMatched++;
+      }
+    }
+    
+    score += wordsMatched * 2;
+
+    // Umbral de confianza
+    if (score > maxScore && score >= 2) {
+      maxScore = score;
+      bestMatch = teacher.nombre_oficial;
+    }
+  }
+
+  // Si hay una buena coincidencia, usar el nombre oficial. Si no, regresar el texto original.
+  return bestMatch || inputName.trim().replace(/\b\w/g, l => l.toUpperCase());
+};
+
 export default function App() {
   const [currentView, setCurrentView] = useState('home'); // home, voting, results
   const [selectedCategory, setSelectedCategory] = useState(null);
@@ -54,38 +100,55 @@ export default function App() {
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [dbError, setDbError] = useState(null);
   
-  // Estado para el formulario de votación
+  // Formulario
   const [teacherName, setTeacherName] = useState('');
   const [reason, setReason] = useState('');
   
-  // Estado para almacenar los votos reales desde Supabase
-  const [votes, setVotes] = useState([]);
-  
-  // Estado para el ranking agrupado desde la vista
+  // Datos de Supabase
+  const [officialTeachers, setOfficialTeachers] = useState([]);
   const [ranking, setRanking] = useState([]);
+  const [categoryRanking, setCategoryRanking] = useState([]);
+  const [votes, setVotes] = useState([]); // Mantenemos para 'reasons' si la vista no lo tiene
 
   const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   // --- ESCUCHAR DATOS EN TIEMPO REAL DESDE SUPABASE ---
-  // Extraemos fetchData fuera del useEffect para poder llamarlo de nuevo
   const fetchData = async () => {
     setIsLoadingData(true);
     setDbError(null);
     try {
-      // 1. Cargar el ranking pre-agrupado desde la vista
+      // 1. Catálogo Oficial
+      const { data: teachersData, error: teachersError } = await supabase
+        .from('teachers')
+        .select('nombre_oficial');
+      if (teachersError) throw teachersError;
+      setOfficialTeachers(teachersData || []);
+
+      // 2. Ranking General (agrupado por maestro_oficial en Supabase)
       const { data: rankingData, error: rankingError } = await supabase
         .from('teacher_ranking')
         .select('*')
         .order('puntos', { ascending: false });
-        
       if (rankingError) throw rankingError;
       setRanking(rankingData || []);
 
-      // 2. Cargar los votos individuales para mantener funcionales las categorías
+      // 3. Ranking por Categorías (agrupado por maestro_oficial en Supabase)
+      const { data: catRankingData, error: catRankingError } = await supabase
+        .from('category_ranking')
+        .select('*')
+        .order('votos', { ascending: false });
+      
+      // Si la vista aún no existe, no rompemos la app, solo atrapamos el error
+      if (catRankingError) {
+        console.warn("Vista category_ranking no encontrada, se usará cálculo local.", catRankingError);
+      } else {
+        setCategoryRanking(catRankingData || []);
+      }
+
+      // 4. Votos individuales (necesario para las justificaciones / reasons si la vista no lo tiene)
       const { data: votesData, error: votesError } = await supabase
         .from('teacher_votes')
         .select('*');
-        
       if (votesError) throw votesError;
       setVotes(votesData || []);
 
@@ -141,16 +204,18 @@ export default function App() {
     setIsSubmitting(true);
 
     try {
-      // Capitalizar nombre original para guardado
+      // Nombre original escrito por el usuario
       const originalName = teacherName.trim().replace(/\b\w/g, l => l.toUpperCase());
-      const normalizedName = normalizarNombre(teacherName);
+      
+      // Coincidencia inteligente contra el catálogo oficial
+      const oficialMatch = findOfficialTeacher(teacherName, officialTeachers);
 
       const { error } = await supabase
         .from('teacher_votes')
         .insert([
           { 
             teacher_name: originalName, 
-            nombre_normalizado: normalizedName,
+            maestro_oficial: oficialMatch, // El nombre detectado (o fallback al original normalizado)
             category_id: selectedCategory.id, 
             reason: reason.trim() 
           }
@@ -173,52 +238,20 @@ export default function App() {
     }
   };
 
-  // --- LA FÓRMULA MATEMÁTICA (SOLO GANADORES DE CATEGORÍA) ---
-  const categoryWinners = useMemo(() => {
-    // 1. Agrupar por nombre_normalizado para las categorías
-    const teacherStats = {};
-
-    votes.forEach(vote => {
-      const idNormalizado = vote.nombre_normalizado || normalizarNombre(vote.teacher_name);
-      if (!idNormalizado) return;
-
-      if (!teacherStats[idNormalizado]) {
-        teacherStats[idNormalizado] = {
-          name: vote.teacher_name, // Nombre base
-          categoryVotes: {},
-        };
-        CATEGORIES.forEach(cat => teacherStats[idNormalizado].categoryVotes[cat.id] = 0);
-      }
-
-      // REGLA: Usar el nombre más completo (largo) encontrado
-      if (vote.teacher_name && vote.teacher_name.length > teacherStats[idNormalizado].name.length) {
-        teacherStats[idNormalizado].name = vote.teacher_name;
-      }
-
-      if (vote.category_id) {
-        teacherStats[idNormalizado].categoryVotes[vote.category_id] = (teacherStats[idNormalizado].categoryVotes[vote.category_id] || 0) + 1;
-      }
-    });
-
-    const allTeachers = Object.values(teacherStats);
-
-    // 2. Calcular ganadores por categoría
-    const winners = CATEGORIES.map(cat => {
-      const sortedInCat = [...allTeachers].sort((a, b) => (b.categoryVotes[cat.id] || 0) - (a.categoryVotes[cat.id] || 0));
-      const topVotes = sortedInCat.length > 0 ? (sortedInCat[0].categoryVotes[cat.id] || 0) : 0;
-      const winner = topVotes > 0 ? sortedInCat[0] : null;
-      
-      const topReasons = winner ? votes.filter(v => {
-        const vNorm = v.nombre_normalizado || normalizarNombre(v.teacher_name);
-        const wNorm = normalizarNombre(winner.name);
-        return vNorm === wNorm && v.category_id === cat.id;
-      }).map(v => v.reason).slice(-2).reverse() : [];
-      
-      return { ...cat, winner, topVotes, topReasons };
-    });
-
-    return winners;
-  }, [votes]);
+  // --- PREPARAR GANADORES POR CATEGORÍA PARA RENDERIZADO ---
+  // Combinamos la configuración de CATEGORIES con los datos pre-agrupados de Supabase
+  const categoryWinners = CATEGORIES.map(cat => {
+    // Buscar si hay datos en la vista category_ranking para esta categoría
+    // Asumimos que categoryRanking trae: { category_id, maestro_oficial, votos }
+    const catData = categoryRanking.find(cr => cr.category_id === cat.id);
+    
+    return {
+      ...cat,
+      winner: catData ? { name: catData.maestro_oficial } : null,
+      topVotes: catData ? catData.votos : 0,
+      topReasons: [] // Si tienes razones agrupadas en la vista, ponlas aquí (ej: catData.reasons)
+    };
+  });
 
   return (
     <div className="min-h-screen bg-indigo-50 font-sans selection:bg-yellow-300 relative overflow-hidden pb-24">
