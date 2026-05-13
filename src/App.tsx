@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Trophy, Smile, Shield, BookOpen, ClipboardCheck, Send, ArrowLeft, Sparkles, MessageSquare, Medal, Crown, Loader2, AlertCircle } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import FingerprintJS from '@fingerprintjs/fingerprintjs';
@@ -109,9 +109,10 @@ export default function App() {
   
   // Datos de Supabase
   const [officialTeachers, setOfficialTeachers] = useState([]);
+  // ranking: [{ maestro_oficial: string, puntos: number }]
   const [ranking, setRanking] = useState([]);
+  // categoryRanking: [{ category_id: string, maestro_oficial: string, votos: number, reasons: string[] }]
   const [categoryRanking, setCategoryRanking] = useState([]);
-  const [votes, setVotes] = useState([]); // Mantenemos para 'reasons' si la vista no lo tiene
 
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   
@@ -132,58 +133,80 @@ export default function App() {
     initFingerprint();
   }, []);
 
-  // --- ESCUCHAR DATOS EN TIEMPO REAL DESDE SUPABASE ---
-  // --- CARGAR DATOS QUE SOLO SE NECESITAN UNA VEZ ---
-  const fetchInitialData = async () => {
-    setIsLoadingData(true);
-    setDbError(null);
-    try {
-      // 1. Catálogo Oficial
-      const { data: teachersData, error: teachersError } = await supabase
-        .from('teachers')
-        .select('nombre_oficial');
-      if (teachersError) throw teachersError;
-      setOfficialTeachers(teachersData || []);
+  // --- Función pura: calcula ranking general y por categoría desde los votos crudos ---
+  const computeRankings = useCallback((votes: any[]) => {
+    if (!votes || votes.length === 0) {
+      setRanking([]);
+      setCategoryRanking([]);
+      return;
+    }
 
-      // 2. Votos individuales (necesario para las justificaciones / reasons)
+    // 1. RANKING GENERAL: agrupar por maestro_oficial, 10 pts por voto
+    const generalMap = new Map<string, number>();
+    for (const vote of votes) {
+      const name: string = vote.maestro_oficial || vote.teacher_name || 'Desconocido';
+      generalMap.set(name, (generalMap.get(name) ?? 0) + 10);
+    }
+    const newRanking = Array.from(generalMap.entries())
+      .map(([maestro_oficial, puntos]) => ({ maestro_oficial, puntos }))
+      .sort((a, b) => b.puntos - a.puntos);
+    setRanking(newRanking);
+
+    // 2. RANKING POR CATEGORÍA: agrupar por category_id + maestro_oficial
+    // Result shape: { category_id, maestro_oficial, votos, reasons[] }
+    const catMap = new Map<string, { votos: number; reasons: string[] }>();
+    for (const vote of votes) {
+      const name: string = vote.maestro_oficial || vote.teacher_name || 'Desconocido';
+      const key = `${vote.category_id}||${name}`;
+      const existing = catMap.get(key) ?? { votos: 0, reasons: [] };
+      existing.votos += 1;
+      if (vote.reason) existing.reasons.push(vote.reason);
+      catMap.set(key, existing);
+    }
+    const newCatRanking = Array.from(catMap.entries())
+      .map(([key, { votos, reasons }]) => {
+        const [category_id, maestro_oficial] = key.split('||');
+        return { category_id, maestro_oficial, votos, reasons };
+      })
+      .sort((a, b) => b.votos - a.votos);
+    setCategoryRanking(newCatRanking);
+  }, []);
+
+  // --- CARGAR TODO DESDE teacher_votes (fuente de verdad única) ---
+  const fetchRankings = useCallback(async () => {
+    if (!supabase) return;
+    try {
       const { data: votesData, error: votesError } = await supabase
         .from('teacher_votes')
         .select('*');
       if (votesError) throw votesError;
-      setVotes(votesData || []);
-
+      computeRankings(votesData ?? []);
     } catch (error) {
-      console.error("Error al cargar datos iniciales:", error);
-      setDbError("No pudimos conectar con la base de datos.");
+      console.error('Error al recargar rankings:', error);
+    }
+  }, [computeRankings]);
+
+  // --- CARGA INICIAL: catálogo de maestros + rankings ---
+  const fetchInitialData = useCallback(async () => {
+    setIsLoadingData(true);
+    setDbError(null);
+    try {
+      // 1. Catálogo oficial de maestros
+      const { data: teachersData, error: teachersError } = await supabase
+        .from('teachers')
+        .select('nombre_oficial');
+      if (teachersError) throw teachersError;
+      setOfficialTeachers(teachersData ?? []);
+
+      // 2. Votos para calcular rankings
+      await fetchRankings();
+    } catch (error) {
+      console.error('Error al cargar datos iniciales:', error);
+      setDbError('No pudimos conectar con la base de datos.');
     } finally {
       setIsLoadingData(false);
     }
-  };
-
-  // --- CARGAR VISTAS DE RANKING (Se llama al inicio y en cada nuevo voto) ---
-  const fetchRankings = async () => {
-    try {
-      // Ranking General
-      const { data: rankingData, error: rankingError } = await supabase
-        .from('teacher_ranking')
-        .select('*')
-        .order('puntos', { ascending: false });
-      if (rankingError) throw rankingError;
-      setRanking(rankingData || []);
-
-      // Ranking por Categorías
-      const { data: catRankingData, error: catRankingError } = await supabase
-        .from('category_ranking')
-        .select('*')
-        .order('votos', { ascending: false });
-      
-      if (!catRankingError) {
-        setCategoryRanking(catRankingData || []);
-      }
-    } catch (error) {
-      console.error("Error al recargar rankings:", error);
-    }
-  };
+  }, [fetchRankings]);
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
@@ -192,26 +215,25 @@ export default function App() {
     }
 
     // Carga inicial
-    fetchInitialData().then(() => {
-      fetchRankings();
-    });
+    fetchInitialData();
 
-    // Suscribirse a cambios en tiempo real
+    // Suscribirse a nuevos votos en tiempo real
     const subscription = supabase
-      .channel('public:teacher_votes')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'teacher_votes' }, payload => {
-        // 1. Actualizamos localmente los votos crudos sin hacer fetch a la DB entera
-        setVotes(currentVotes => [...currentVotes, payload.new]);
-        
-        // 2. Recargamos SOLO las vistas agregadas que cambiaron
-        fetchRankings();
-      })
+      .channel('realtime:teacher_votes')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'teacher_votes' },
+        () => {
+          // Recalcular rankings desde la fuente de verdad cada vez que llega un nuevo voto
+          fetchRankings();
+        }
+      )
       .subscribe();
 
     return () => {
       supabase.removeChannel(subscription);
     };
-  }, []);
+  }, [fetchInitialData, fetchRankings]);
 
   // Iniciar flujo de votación
   const handleSelectCategory = (category) => {
@@ -292,17 +314,23 @@ export default function App() {
   };
 
   // --- PREPARAR GANADORES POR CATEGORÍA PARA RENDERIZADO ---
-  // Combinamos la configuración de CATEGORIES con los datos pre-agrupados de Supabase
+  // Para cada categoría, filtramos todos sus votos y elegimos el ganador con más votos.
   const categoryWinners = CATEGORIES.map(cat => {
-    // Buscar si hay datos en la vista category_ranking para esta categoría
-    // Asumimos que categoryRanking trae: { category_id, maestro_oficial, votos }
-    const catData = categoryRanking.find(cr => cr.category_id === cat.id);
-    
+    // Filtrar todos los registros de esta categoría, ordenados de mayor a menor
+    const catEntries = categoryRanking
+      .filter(cr => cr.category_id === cat.id)
+      .sort((a, b) => b.votos - a.votos);
+
+    const topEntry = catEntries[0] ?? null;
+
+    // Recopilar las razones del ganador (máx. 3 para no saturar la UI)
+    const topReasons: string[] = topEntry?.reasons?.slice(0, 3) ?? [];
+
     return {
       ...cat,
-      winner: catData ? { name: catData.maestro_oficial } : null,
-      topVotes: catData ? catData.votos : 0,
-      topReasons: [] // Si tienes razones agrupadas en la vista, ponlas aquí (ej: catData.reasons)
+      winner: topEntry ? { name: topEntry.maestro_oficial } : null,
+      topVotes: topEntry?.votos ?? 0,
+      topReasons,
     };
   });
 
