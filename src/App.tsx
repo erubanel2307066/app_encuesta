@@ -460,10 +460,13 @@ export default function App() {
                     <button 
                       type="submit"
                       disabled={isSubmitting || !isConfigured}
-                      className={`w-full py-5 rounded-2xl font-black text-xl text-white ${selectedCategory.color} ${(isSubmitting || !isConfigured) ? 'opacity-70 cursor-not-allowed' : 'hover:brightness-110 active:scale-95'} transition-all shadow-lg flex items-center justify-center gap-3 mt-6`}
+                      className={`w-full py-5 rounded-2xl font-black text-xl text-white ${selectedCategory.color} ${(isSubmitting || !isConfigured) ? 'opacity-70 cursor-not-allowed' : 'hover:brightness-110 active:scale-95'} transition-all shadow-lg flex items-center justify-center mt-6`}
                     >
-                      {isSubmitting ? <><Loader2 size={24} className="animate-spin" /> Enviando...</> : '¡Enviar Voto!'} 
-                      {!isSubmitting && <Send size={24} />}
+                      {isSubmitting ? (
+                        <span className="flex items-center gap-3"><Loader2 size={24} className="animate-spin" /> Enviando...</span>
+                      ) : (
+                        <span className="flex items-center gap-3">¡Enviar Voto! <Send size={24} /></span>
+                      )}
                     </button>
                   </form>
                 </div>
