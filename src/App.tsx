@@ -110,10 +110,8 @@ export default function App() {
   
   // Datos de Supabase
   const [officialTeachers, setOfficialTeachers] = useState([]);
-  // ranking: [{ maestro_oficial: string, puntos: number }]
-  const [ranking, setRanking] = useState([]);
-  // categoryRanking: [{ category_id: string, maestro_oficial: string, votos: number, reasons: string[] }]
-  const [categoryRanking, setCategoryRanking] = useState([]);
+  // winners: [{ category_id: string, maestro_oficial: string, votos: number }]
+  const [winners, setWinners] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
   // --- LÓGICA DE AUTOCOMPLETE Y FUZZY SEARCH ---
@@ -173,60 +171,24 @@ export default function App() {
     initFingerprint();
   }, []);
 
-  // --- Función pura: calcula ranking general y por categoría desde los votos crudos ---
-  const computeRankings = useCallback((votes: any[]) => {
-    if (!votes || votes.length === 0) {
-      setRanking([]);
-      setCategoryRanking([]);
-      return;
-    }
-
-    // 1. RANKING GENERAL: agrupar por maestro_oficial, 10 pts por voto
-    const generalMap = new Map<string, number>();
-    for (const vote of votes) {
-      const name: string = vote.maestro_oficial || vote.teacher_name || 'Desconocido';
-      generalMap.set(name, (generalMap.get(name) ?? 0) + 10);
-    }
-    const newRanking = Array.from(generalMap.entries())
-      .map(([maestro_oficial, puntos]) => ({ maestro_oficial, puntos }))
-      .sort((a, b) => b.puntos - a.puntos);
-    setRanking(newRanking);
-
-    // 2. RANKING POR CATEGORÍA: agrupar por category_id + maestro_oficial
-    // Result shape: { category_id, maestro_oficial, votos, reasons[] }
-    const catMap = new Map<string, { votos: number; reasons: string[] }>();
-    for (const vote of votes) {
-      const name: string = vote.maestro_oficial || vote.teacher_name || 'Desconocido';
-      const key = `${vote.category_id}||${name}`;
-      const existing = catMap.get(key) ?? { votos: 0, reasons: [] };
-      existing.votos += 1;
-      if (vote.reason) existing.reasons.push(vote.reason);
-      catMap.set(key, existing);
-    }
-    const newCatRanking = Array.from(catMap.entries())
-      .map(([key, { votos, reasons }]) => {
-        const [category_id, maestro_oficial] = key.split('||');
-        return { category_id, maestro_oficial, votos, reasons };
-      })
-      .sort((a, b) => b.votos - a.votos);
-    setCategoryRanking(newCatRanking);
-  }, []);
-
-  // --- CARGAR TODO DESDE teacher_votes (fuente de verdad única) ---
-  const fetchRankings = useCallback(async () => {
+  // --- CARGAR GANADORES DESDE LA VISTA category_winners ---
+  const fetchWinners = useCallback(async () => {
     if (!supabase) return;
     try {
-      const { data: votesData, error: votesError } = await supabase
-        .from('teacher_votes')
+      const { data, error } = await supabase
+        .from('category_winners')
         .select('*');
-      if (votesError) throw votesError;
-      computeRankings(votesData ?? []);
+      
+      if (error) throw error;
+      
+      console.log("Ganadores reales:", data);
+      setWinners(data ?? []);
     } catch (error) {
-      console.error('Error al recargar rankings:', error);
+      console.error('Error al recargar ganadores:', error);
     }
-  }, [computeRankings]);
+  }, []);
 
-  // --- CARGA INICIAL: catálogo de maestros + rankings ---
+  // --- CARGA INICIAL: catálogo de maestros + ganadores ---
   const fetchInitialData = useCallback(async () => {
     setIsLoadingData(true);
     setDbError(null);
@@ -238,15 +200,15 @@ export default function App() {
       if (teachersError) throw teachersError;
       setOfficialTeachers(teachersData ?? []);
 
-      // 2. Votos para calcular rankings
-      await fetchRankings();
+      // 2. Ganadores actuales
+      await fetchWinners();
     } catch (error) {
       console.error('Error al cargar datos iniciales:', error);
       setDbError('No pudimos conectar con la base de datos.');
     } finally {
       setIsLoadingData(false);
     }
-  }, [fetchRankings]);
+  }, [fetchWinners]);
 
   useEffect(() => {
     if (!isConfigured || !supabase) {
@@ -264,8 +226,8 @@ export default function App() {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'teacher_votes' },
         () => {
-          // Recalcular rankings desde la fuente de verdad cada vez que llega un nuevo voto
-          fetchRankings();
+          // Refrescar ganadores desde la vista cuando llega un nuevo voto
+          fetchWinners();
         }
       )
       .subscribe();
@@ -273,7 +235,7 @@ export default function App() {
     return () => {
       supabase.removeChannel(subscription);
     };
-  }, [fetchInitialData, fetchRankings]);
+  }, [fetchInitialData, fetchWinners]);
 
   // Iniciar flujo de votación
   const handleSelectCategory = (category) => {
@@ -353,26 +315,14 @@ export default function App() {
     }
   };
 
-  // --- PREPARAR GANADORES POR CATEGORÍA PARA RENDERIZADO ---
-  // Para cada categoría, filtramos todos sus votos y elegimos el ganador con más votos.
-  const categoryWinners = CATEGORIES.map(cat => {
-    // Filtrar todos los registros de esta categoría, ordenados de mayor a menor
-    const catEntries = categoryRanking
-      .filter(cr => cr.category_id === cat.id)
-      .sort((a, b) => b.votos - a.votos);
-
-    const topEntry = catEntries[0] ?? null;
-
-    // Recopilar las razones del ganador (máx. 3 para no saturar la UI)
-    const topReasons: string[] = topEntry?.reasons?.slice(0, 3) ?? [];
-
-    return {
-      ...cat,
-      winner: topEntry ? { name: topEntry.maestro_oficial } : null,
-      topVotes: topEntry?.votos ?? 0,
-      topReasons,
-    };
-  });
+  // Mapeo de IDs de categoría a etiquetas "bonitas"
+  const CATEGORY_LABELS = {
+    best: "El/La Mejor de Todos",
+    fun: "El Más Divertido",
+    explains: "Explica Mejor",
+    inspiring: "Inspiración Total",
+    strict: "El Más Estricto"
+  };
 
   return (
     <div className="min-h-screen bg-indigo-50 font-sans selection:bg-yellow-300 relative overflow-hidden pb-24">
@@ -606,109 +556,77 @@ export default function App() {
               </div>
             )}
 
-            {/* --- VIEW 3: RESULTADOS --- */}
+            {/* --- VIEW 3: RESULTADOS (GANADORES REALES) --- */}
             {currentView === 'results' && (
-              <div className="space-y-12 animate-in fade-in slide-in-from-bottom duration-500">
+              <div className="space-y-8 animate-in fade-in slide-in-from-bottom duration-700">
                 
-                {/* Top 3 General */}
-                <div className="bg-white p-8 sm:p-10 rounded-[3rem] shadow-2xl border-4 border-indigo-200">
-                  <h2 className="text-2xl sm:text-3xl font-black text-indigo-900 mb-8 flex items-center justify-center gap-3">
-                    <Trophy className="text-yellow-400 fill-yellow-400 w-8 h-8 sm:w-10 sm:h-10" /> TOP MAESTROS <Trophy className="text-yellow-400 fill-yellow-400 w-8 h-8 sm:w-10 sm:h-10" />
+                <div className="text-center mb-10">
+                  <h2 className="text-3xl sm:text-4xl font-black text-indigo-900 mb-2">
+                    🏆 Cuadro de Honor
                   </h2>
-
-                  <div className="space-y-6">
-                    {ranking.slice(0, 5).map((teacher, idx) => (
-                      <div key={teacher.maestro_oficial || idx} className="relative flex items-center p-4 sm:p-5 bg-indigo-50 rounded-[2rem] overflow-hidden group border border-indigo-100">
-                        <div 
-                          className="absolute left-0 top-0 h-full bg-indigo-200/50 transition-all duration-1000 ease-out"
-                          style={{ width: `${Math.min((teacher.puntos / (ranking[0]?.puntos || 1)) * 100, 100)}%` }}
-                        ></div>
-                        
-                        <div className="relative z-10 flex items-center w-full">
-                          <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-xl mr-4 shadow-md shrink-0
-                            ${idx === 0 ? 'bg-yellow-400 text-yellow-900 border-4 border-white' : 
-                              idx === 1 ? 'bg-slate-300 text-slate-700 border-4 border-white' : 
-                              idx === 2 ? 'bg-amber-600 text-amber-100 border-4 border-white' : 
-                              'bg-indigo-200 text-indigo-700'}`}>
-                            {idx + 1}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-black text-lg sm:text-xl text-indigo-900 truncate">{teacher.maestro_oficial}</h3>
-                          </div>
-                          <div className="text-right ml-3 shrink-0 bg-white px-4 py-2 rounded-2xl shadow-md border border-indigo-100">
-                            <span className="font-black text-xl text-indigo-600">{teacher.puntos}</span>
-                            <span className="text-xs font-bold text-indigo-400 ml-1">PTS</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-
-                    {ranking.length === 0 && (
-                      <p className="text-center text-indigo-400 font-bold py-10 text-lg italic">¡Nadie ha votado todavía! Sé el primero en nominar. 🚀</p>
-                    )}
-                  </div>
+                  <p className="text-indigo-600 font-bold">Resultados oficiales basados en votos reales</p>
                 </div>
 
-                {/* Ganadores por Categoría */}
-                {ranking.length > 0 && (
-                  <>
-                    <h2 className="text-2xl font-black text-center text-indigo-900 mt-16 mb-6 bg-white/50 py-3 rounded-full inline-block px-10 w-full shadow-md border border-indigo-100">
-                      Ganadores por Categoría 🌟
-                    </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  {CATEGORIES.map((cat, index) => {
+                    const winnerData = winners.find(w => w.category_id === cat.id);
+                    const Icon = cat.icon;
+                    const isLast = index === CATEGORIES.length - 1;
                     
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      {categoryWinners.map(cat => {
-                        const Icon = cat.icon;
-                        return (
-                          <div key={cat.id} className="bg-white rounded-[2.5rem] overflow-hidden shadow-xl border-2 border-indigo-100 flex flex-col">
-                            <div className={`${cat.color} p-5 flex items-center justify-between shadow-sm`}>
-                              <div className="flex items-center gap-3">
-                                <div className="bg-white/30 p-2.5 rounded-2xl shadow-inner">
-                                  <Icon size={28} className={cat.text} strokeWidth={2.5} />
-                                </div>
-                                <h3 className={`font-black text-lg sm:text-xl ${cat.text}`}>{cat.label}</h3>
+                    return (
+                      <div 
+                        key={cat.id} 
+                        className={`bg-white rounded-[2.5rem] p-1 shadow-xl border-b-8 border-indigo-100 hover:border-indigo-200 transition-all group overflow-hidden flex flex-col ${isLast ? 'sm:col-span-2 sm:max-w-lg sm:mx-auto w-full' : ''}`}
+                      >
+                        {/* Header: Categoría y Icono */}
+                        <div className={`${cat.color} ${cat.text} p-6 flex flex-col items-center justify-center text-center rounded-[2.2rem] m-2 shadow-sm`}>
+                          <Icon size={32} strokeWidth={2.5} className="mb-2" />
+                          <span className="font-black text-xs uppercase tracking-tighter leading-tight">
+                            {CATEGORY_LABELS[cat.id] || cat.label}
+                          </span>
+                        </div>
+
+                        {/* Content: Ganador y Votos */}
+                        <div className="flex-1 p-6 flex flex-col items-center text-center justify-between gap-6">
+                          <div>
+                            {winnerData ? (
+                              <>
+                                <p className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] mb-2">Ganador(a) Actual</p>
+                                <h3 className="text-xl sm:text-2xl font-black text-indigo-900 leading-tight px-2">
+                                  {winnerData.maestro_oficial}
+                                </h3>
+                              </>
+                            ) : (
+                              <div className="flex items-center gap-2 text-indigo-300 font-bold italic py-4">
+                                <AlertCircle size={20} /> Sin nominaciones aún
+                              </div>
+                            )}
+                          </div>
+
+                          {winnerData && (
+                            <div className="w-full pt-4 border-t border-indigo-50 flex items-center justify-center gap-4">
+                              <div className="bg-indigo-50 px-5 py-3 rounded-2xl border-2 border-indigo-100 min-w-[90px] group-hover:scale-105 transition-transform">
+                                <span className={`text-xl font-black ${cat.text}`}>{winnerData.votos}</span>
+                                <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest -mt-1">Votos</p>
+                              </div>
+                              <div className="bg-yellow-100 p-2.5 rounded-full shadow-inner border border-yellow-200">
+                                <Trophy className="text-yellow-500 w-6 h-6" />
                               </div>
                             </div>
-                            
-                            <div className="p-6 flex-1 flex flex-col">
-                              {cat.winner ? (
-                                <div className="flex-1 flex flex-col">
-                                  <div className="flex items-end justify-between mb-6 border-b-2 border-indigo-50 pb-6">
-                                    <div className="max-w-[75%]">
-                                      <p className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-1.5">Nominado principal</p>
-                                      <h4 className="text-2xl font-black text-indigo-900 leading-tight">{cat.winner.name}</h4>
-                                    </div>
-                                    <div className="text-right shrink-0">
-                                      <span className={`text-3xl font-black ${cat.text}`}>{cat.topVotes}</span>
-                                      <span className="text-xs font-bold text-indigo-400 block -mt-1 tracking-tighter">VOTOS</span>
-                                    </div>
-                                  </div>
-                                  
-                                  <div className="space-y-3 flex-1">
-                                    <p className="text-xs font-bold text-indigo-400 mb-3 flex items-center gap-1.5 uppercase tracking-wider">
-                                      <MessageSquare size={14} className="text-indigo-300" /> ¿Qué dicen los alumnos?
-                                    </p>
-                                    {cat.topReasons.map((r, i) => (
-                                      <div key={i} className="bg-indigo-50/50 rounded-[1.5rem] p-4 text-sm sm:text-base text-indigo-800 italic relative border border-indigo-100 leading-relaxed shadow-sm">
-                                        "{r}"
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="py-12 flex flex-col items-center justify-center text-center">
-                                  <div className="bg-indigo-50 p-4 rounded-full mb-3">
-                                    <AlertCircle size={32} className="text-indigo-200" />
-                                  </div>
-                                  <p className="text-indigo-300 font-bold italic">Nadie ha sido nominado aún.</p>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {winners.length === 0 && (
+                  <div className="bg-white/80 backdrop-blur-sm p-12 rounded-[3rem] text-center border-4 border-dashed border-indigo-100">
+                    <p className="text-indigo-400 font-bold text-xl italic">
+                      Esperando los primeros resultados... <br />
+                      ¡Corre a votar por tu maestro favorito! 🚀
+                    </p>
+                  </div>
                 )}
               </div>
             )}
@@ -735,10 +653,10 @@ export default function App() {
               <span className="text-6xl animate-bounce">🎉</span>
             </div>
             <h3 className="text-3xl font-black text-indigo-900 mb-3">¡Voto Registrado!</h3>
-            <p className="text-indigo-600 font-bold text-lg mb-8">Tus puntos se han sumado al profesor con éxito.</p>
+            <p className="text-indigo-600 font-bold text-lg mb-8">Tu nominación se ha registrado con éxito.</p>
             
             <div className="bg-indigo-50 p-5 rounded-2xl border-2 border-indigo-100 flex items-center justify-center gap-3 text-indigo-800 font-black text-xl shadow-sm">
-              +10 Puntos Generales <Medal size={24} className="text-yellow-500 fill-yellow-500" />
+              ¡Gracias por participar! <Medal size={24} className="text-yellow-500 fill-yellow-500" />
             </div>
           </div>
         </div>
