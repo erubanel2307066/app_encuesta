@@ -258,19 +258,20 @@ export default function App() {
     setIsSubmitting(true);
 
     try {
-      // Validación Antifraude
+      // Validación Antifraude Total (Solo 1 voto por dispositivo en toda la app)
       if (visitorId) {
+        console.log("Verificando dispositivo:", visitorId);
         const { data: existingVote, error: checkError } = await supabase
           .from('teacher_votes')
           .select('id')
           .eq('device_fingerprint', visitorId)
-          .eq('category_id', selectedCategory.id)
           .limit(1);
 
         if (checkError) {
           console.error("Error validando voto previo:", checkError);
         } else if (existingVote && existingVote.length > 0) {
-          alert("Ya realizaste una votación en esta categoría.");
+          console.log("Dispositivo bloqueado");
+          alert("Ya realizaste tu votación.");
           setIsSubmitting(false);
           return;
         }
