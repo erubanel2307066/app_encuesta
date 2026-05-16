@@ -22,6 +22,45 @@
   animation-delay: 4s;
 }
 
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.05); }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 4s ease-in-out infinite;
+}
+
+@layer utilities {
+  .bg-glass {
+    @apply bg-white/[0.03] backdrop-blur-xl border border-white/10;
+  }
+  .text-glow {
+    text-shadow: 0 0 10px currentColor;
+  }
+  .shadow-glow-blue {
+    box-shadow: 0 0 20px -5px rgba(59, 130, 246, 0.5);
+  }
+  .shadow-glow-purple {
+    box-shadow: 0 0 20px -5px rgba(168, 85, 247, 0.5);
+  }
+}
+
+/* Custom Scrollbar for Dark Theme */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
 * {
 	box-sizing: border-box;
 	scroll-behavior: smooth;
