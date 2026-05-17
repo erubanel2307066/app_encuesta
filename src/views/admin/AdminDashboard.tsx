@@ -1,18 +1,17 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, memo } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { useRealtimeStats } from '../../hooks/useRealtime';
 import { supabase } from '../../lib/supabase';
 import { 
-  Trophy, Users, BarChart3, Clock, Settings, LogOut, 
-  CheckCircle2, XCircle, ChevronRight, Loader2, RefreshCcw,
-  Medal, TrendingUp, Filter, AlertCircle, Sparkles, Activity,
-  Crown, ShieldCheck, Zap
+  Trophy, Users, BarChart3, Clock, LogOut, 
+  CheckCircle2, Loader2, RefreshCcw,
+  Activity, Crown, ShieldCheck, Zap, XCircle, Filter, AlertCircle, Sparkles
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  Cell, AreaChart, Area
+  Cell
 } from 'recharts';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import Tilt from 'react-parallax-tilt';
 import CountUp from 'react-countup';
 import { cn } from '../../lib/utils';
@@ -38,9 +37,8 @@ const AdminDashboard: React.FC = () => {
   const { user, signOut } = useAuth();
   const { stats, loading, refetch } = useRealtimeStats();
   const [isToggling, setIsToggling] = useState(false);
-  const [activeTab, setActiveTab] = useState('overview');
 
-  const toggleVoting = async () => {
+  const toggleVoting = useCallback(async () => {
     setIsToggling(true);
     try {
       const { error } = await supabase
@@ -55,7 +53,7 @@ const AdminDashboard: React.FC = () => {
     } finally {
       setIsToggling(false);
     }
-  };
+  }, [stats?.votingEnabled, refetch]);
 
   const nullVotes = useMemo(() => 
     stats?.recentActivity?.filter(v => !v.maestro_oficial)?.length || 0
@@ -81,11 +79,11 @@ const AdminDashboard: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#060816] text-white flex font-sans selection:bg-blue-500/30 overflow-hidden">
-      {/* BACKGROUND ORBS */}
+      {/* STATIC BACKGROUND ORBS — no animation cost */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-blue-600/10 blur-[120px] rounded-full animate-blob" />
-        <div className="absolute top-[20%] -right-[10%] w-[35%] h-[35%] bg-purple-600/10 blur-[120px] rounded-full animate-blob animation-delay-2000" />
-        <div className="absolute -bottom-[10%] left-[20%] w-[40%] h-[40%] bg-cyan-600/10 blur-[120px] rounded-full animate-blob animation-delay-4000" />
+        <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-blue-600/8 blur-[120px] rounded-full" />
+        <div className="absolute top-[20%] -right-[10%] w-[35%] h-[35%] bg-purple-600/8 blur-[120px] rounded-full" />
+        <div className="absolute -bottom-[10%] left-[20%] w-[40%] h-[40%] bg-cyan-600/6 blur-[120px] rounded-full" />
       </div>
 
       {/* SIDEBAR */}
@@ -105,25 +103,20 @@ const AdminDashboard: React.FC = () => {
             <div className="absolute inset-0 bg-blue-500/20 blur-[60px] rounded-full animate-pulse-glow" />
             
             {/* THE CAPSULE / PANEL */}
-            <Tilt tiltMaxAngleX={15} tiltMaxAngleY={15} perspective={1000} className="relative">
-              <div className="bg-white/[0.03] backdrop-blur-3xl rounded-[3rem] p-10 border border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.3)] relative overflow-hidden group">
+            <Tilt tiltMaxAngleX={8} tiltMaxAngleY={8} perspective={1200} className="relative" glareEnable={false}>
+              <div className="bg-white/[0.04] rounded-[3rem] p-10 border border-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.3)] relative overflow-hidden group">
                 {/* ENERGY PEDESTAL EFFECT */}
-                <div className="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-blue-500/10 to-transparent" />
-                <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-3/4 h-1 bg-blue-400 blur-md opacity-50" />
+                <div className="absolute bottom-0 left-0 w-full h-1/3 bg-gradient-to-t from-blue-500/8 to-transparent" />
                 
                 {/* LOGO IMAGE */}
-                <motion.div
-                  animate={{ y: [0, -10, 0] }}
-                  transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-                  className="relative z-10 flex flex-col items-center"
-                >
+                <div className="relative z-10 flex flex-col items-center">
                   <div className="relative mb-8">
-                    <div className="absolute inset-0 bg-blue-500/40 blur-2xl rounded-full scale-110 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                    <div className="absolute inset-0 bg-blue-500/20 blur-2xl rounded-full scale-110 opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
                     <div className="w-44 h-44 rounded-full bg-slate-200/90 flex items-center justify-center shadow-inner relative z-10">
                       <img 
                         src="/logomiguel.png" 
                         alt="Logo Oficial" 
-                        className="w-36 h-36 object-contain drop-shadow-[0_0_12px_rgba(59,130,246,0.4)] group-hover:scale-110 transition-transform duration-500" 
+                        className="w-36 h-36 object-contain group-hover:scale-105 transition-transform duration-700" 
                       />
                     </div>
                   </div>
@@ -137,21 +130,14 @@ const AdminDashboard: React.FC = () => {
                       Miguel Hidalgo y Costilla
                     </h3>
                     <div className="pt-4">
-                      <span className="px-4 py-1.5 bg-purple-500/10 border border-purple-500/20 rounded-full text-[10px] font-black text-purple-400 uppercase tracking-[0.2em] shadow-glow-purple">
+                      <span className="px-4 py-1.5 bg-purple-500/10 border border-purple-500/20 rounded-full text-[10px] font-black text-purple-400 uppercase tracking-[0.2em]">
                         Código Maestro
                       </span>
                     </div>
                   </div>
-                </motion.div>
+                </div>
               </div>
             </Tilt>
-
-            {/* SCANNING LINE EFFECT */}
-            <motion.div 
-              animate={{ top: ["0%", "100%", "0%"] }}
-              transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
-              className="absolute left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-blue-400/30 to-transparent pointer-events-none z-20"
-            />
           </motion.div>
         </div>
 
@@ -404,51 +390,32 @@ const AdminDashboard: React.FC = () => {
 
 // SUB-COMPONENTS
 
-const SidebarItem = ({ active, icon, label, onClick }: any) => (
-  <button 
-    onClick={onClick}
-    className={cn(
-      "w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl font-bold transition-all relative group",
-      active 
-        ? "bg-blue-500/10 text-blue-400 border border-blue-500/20" 
-        : "text-slate-500 hover:text-slate-300 hover:bg-white/[0.02]"
-    )}
-  >
-    {active && <motion.div layoutId="sidebar-active" className="absolute left-0 w-1 h-6 bg-blue-500 rounded-r-full shadow-glow-blue" />}
-    <span className={cn("transition-transform group-hover:scale-110", active && "text-blue-400")}>{icon}</span>
-    <span className="text-sm tracking-tight">{label}</span>
-  </button>
-);
-
-const KPIStore = ({ label, value, icon, accent, trend, suffix }: any) => {
-  const themes = {
-    blue: "from-blue-500/20 via-blue-500/5 to-transparent border-blue-500/20 text-blue-400",
-    red: "from-red-500/20 via-red-500/5 to-transparent border-red-500/20 text-red-400",
-    purple: "from-purple-500/20 via-purple-500/5 to-transparent border-purple-500/20 text-purple-400",
-    cyan: "from-cyan-500/20 via-cyan-500/5 to-transparent border-cyan-500/20 text-cyan-400",
+const KPIStore = memo(({ label, value, icon, accent, trend, suffix }: any) => {
+  const themes: Record<string, string> = {
+    blue: "border-blue-500/20 text-blue-400",
+    red: "border-red-500/20 text-red-400",
+    purple: "border-purple-500/20 text-purple-400",
+    cyan: "border-cyan-500/20 text-cyan-400",
   };
 
   return (
-    <Tilt tiltMaxAngleX={10} tiltMaxAngleY={10} perspective={1000} scale={1.02} transitionSpeed={2000}>
+    <Tilt tiltMaxAngleX={6} tiltMaxAngleY={6} perspective={1200} scale={1.01} transitionSpeed={3000} glareEnable={false}>
       <div className={cn(
-        "bg-white/[0.02] border rounded-[2rem] p-6 relative overflow-hidden group transition-all duration-500 hover:bg-white/[0.04]",
-        themes[accent as keyof typeof themes].split(' border')[0]
+        "bg-white/[0.03] border rounded-[2rem] p-6 relative overflow-hidden group transition-colors duration-300 hover:bg-white/[0.05] cursor-default",
+        themes[accent]
       )}>
-        <div className={cn("absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-current to-transparent opacity-20", themes[accent as keyof typeof themes].split('text-')[1])} />
         <div className="flex items-start justify-between mb-4 relative z-10">
-          <div className={cn("p-4 rounded-2xl bg-white/[0.05] border border-white/5", themes[accent as keyof typeof themes].split('text-')[1])}>
-            {React.cloneElement(icon, { size: 24 })}
+          <div className={cn("p-3 rounded-2xl bg-white/[0.05] border border-white/5", themes[accent].split(' ')[1])}>
+            {React.cloneElement(icon, { size: 22 })}
           </div>
-          <div className="flex flex-col items-end">
-            <span className="px-2.5 py-1 bg-white/[0.05] rounded-full text-[9px] font-black text-slate-500 uppercase tracking-tighter border border-white/5">
-              {trend}
-            </span>
-          </div>
+          <span className="px-2.5 py-1 bg-white/[0.04] rounded-full text-[9px] font-black text-slate-500 uppercase tracking-tighter border border-white/5">
+            {trend}
+          </span>
         </div>
         <div className="relative z-10">
           <div className="flex items-baseline gap-2">
             <p className="text-4xl font-black tracking-tighter text-white">
-              <CountUp end={value} duration={2} separator="," />
+              <CountUp end={value} duration={1.5} separator="," />
             </p>
             {suffix && <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{suffix}</span>}
           </div>
@@ -457,30 +424,27 @@ const KPIStore = ({ label, value, icon, accent, trend, suffix }: any) => {
       </div>
     </Tilt>
   );
-};
+});
 
-const WinnerItem = ({ winner, rank }: any) => {
+const WinnerItem = memo(({ winner, rank }: any) => {
   const isTop1 = rank === 1;
   const color = CATEGORY_COLORS[winner.category_id] || "#fff";
   
   return (
-    <motion.div 
-      whileHover={{ x: 5 }}
-      className={cn(
-        "p-5 rounded-3xl border transition-all relative group overflow-hidden",
-        isTop1 
-          ? "bg-yellow-500/10 border-yellow-500/50 shadow-glow-purple" 
-          : "bg-white/[0.03] border-white/5 hover:border-white/10"
-      )}
-    >
+    <div className={cn(
+      "p-5 rounded-3xl border transition-colors relative group overflow-hidden",
+      isTop1 
+        ? "bg-yellow-500/10 border-yellow-500/30" 
+        : "bg-white/[0.03] border-white/5 hover:border-white/10"
+    )}>
       {isTop1 && (
-        <div className="absolute top-0 right-0 p-2 text-yellow-500/20">
+        <div className="absolute top-0 right-0 p-2 text-yellow-500/10">
           <Trophy size={48} strokeWidth={1} />
         </div>
       )}
-      <div className="flex items-center gap-5 relative z-10">
+      <div className="flex items-center gap-4 relative z-10">
         <div className={cn(
-          "w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl shadow-lg border",
+          "w-11 h-11 rounded-2xl flex items-center justify-center font-black text-lg border",
           rank === 1 ? "bg-yellow-500 text-yellow-950 border-yellow-400" :
           rank === 2 ? "bg-slate-300 text-slate-900 border-slate-200" :
           "bg-orange-800 text-orange-100 border-orange-700"
@@ -488,47 +452,38 @@ const WinnerItem = ({ winner, rank }: any) => {
           {rank}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-[9px] font-black uppercase tracking-widest mb-1" style={{ color: color }}>
+          <p className="text-[9px] font-black uppercase tracking-widest mb-1" style={{ color }}>
             {CATEGORY_LABELS[winner.category_id] || winner.category_id}
           </p>
-          <p className="font-black text-slate-100 truncate text-base leading-none">{winner.maestro_oficial}</p>
+          <p className="font-black text-slate-100 truncate text-sm leading-none">{winner.maestro_oficial}</p>
         </div>
         <div className="text-right">
           <p className="text-xl font-black text-white leading-none">{winner.votos}</p>
           <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1">Votos</p>
         </div>
       </div>
-      
-      {/* Progress Bar */}
-      <div className="mt-4 h-1 bg-white/5 rounded-full overflow-hidden">
-        <motion.div 
-          initial={{ width: 0 }}
-          animate={{ width: "100%" }}
-          transition={{ duration: 1, delay: 0.5 }}
-          className="h-full rounded-full"
-          style={{ backgroundColor: color, opacity: 0.5 }}
-        />
+      <div className="mt-3 h-0.5 bg-white/5 rounded-full overflow-hidden">
+        <div className="h-full rounded-full w-full" style={{ backgroundColor: color, opacity: 0.4 }} />
       </div>
-    </motion.div>
+    </div>
   );
-};
+});
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+const CustomTooltip = memo(({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     const color = CATEGORY_COLORS[data.id] || "#3b82f6";
-    
     return (
-      <div className="bg-[#0B1020]/90 backdrop-blur-xl border border-white/10 p-4 rounded-2xl shadow-2xl">
+      <div className="bg-[#0d1424] border border-white/10 p-4 rounded-2xl shadow-xl">
         <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">{label}</p>
         <div className="flex items-center gap-3">
-          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color, boxShadow: `0 0 10px ${color}` }} />
+          <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
           <span className="text-xl font-black text-white">{payload[0].value} <span className="text-xs font-bold text-slate-400">Votos</span></span>
         </div>
       </div>
     );
   }
   return null;
-};
+});
 
 export default AdminDashboard;
