@@ -1,49 +1,75 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Clock, CheckCircle2 } from 'lucide-react';
+import { Clock, CheckCircle2, Loader2 } from 'lucide-react';
 
 interface CountdownBannerProps {
   closingAt: Date | null;
   votingEnabled?: boolean;
+  loading?: boolean;
 }
 
-export default function CountdownBanner({ closingAt, votingEnabled = true }: CountdownBannerProps) {
-  const [timeLeft, setTimeLeft] = useState({
-    days: 0,
-    hours: 0,
-    minutes: 0,
-    seconds: 0,
+type TimeLeft = {
+  days: number;
+  hours: number;
+  minutes: number;
+  seconds: number;
+  isExpired: boolean;
+  hoursTotal: number;
+};
+
+function computeTimeLeft(closingAt: Date | null, votingEnabled: boolean): TimeLeft {
+  if (!closingAt || !votingEnabled || Number.isNaN(closingAt.getTime())) {
+    return { days: 0, hours: 0, minutes: 0, seconds: 0, isExpired: true, hoursTotal: 0 };
+  }
+
+  const difference = closingAt.getTime() - Date.now();
+
+  if (difference <= 0) {
+    return { days: 0, hours: 0, minutes: 0, seconds: 0, isExpired: true, hoursTotal: 0 };
+  }
+
+  const hoursTotal = difference / (1000 * 60 * 60);
+
+  return {
+    days: Math.floor(difference / (1000 * 60 * 60 * 24)),
+    hours: Math.floor((difference / (1000 * 60 * 60)) % 24),
+    minutes: Math.floor((difference / 1000 / 60) % 60),
+    seconds: Math.floor((difference / 1000) % 60),
     isExpired: false,
-    hoursTotal: 0,
-  });
+    hoursTotal,
+  };
+}
 
-  const calculateTimeLeft = useCallback(() => {
-    if (!closingAt || !votingEnabled) {
-      return { days: 0, hours: 0, minutes: 0, seconds: 0, isExpired: true, hoursTotal: 0 };
-    }
+export default function CountdownBanner({
+  closingAt,
+  votingEnabled = true,
+  loading = false,
+}: CountdownBannerProps) {
+  const calc = useCallback(
+    () => computeTimeLeft(closingAt, votingEnabled),
+    [closingAt, votingEnabled]
+  );
 
-    const difference = closingAt.getTime() - Date.now();
-
-    if (difference <= 0) {
-      return { days: 0, hours: 0, minutes: 0, seconds: 0, isExpired: true, hoursTotal: 0 };
-    }
-
-    const hoursTotal = difference / (1000 * 60 * 60);
-
-    return {
-      days: Math.floor(difference / (1000 * 60 * 60 * 24)),
-      hours: Math.floor((difference / (1000 * 60 * 60)) % 24),
-      minutes: Math.floor((difference / 1000 / 60) % 60),
-      seconds: Math.floor((difference / 1000) % 60),
-      isExpired: false,
-      hoursTotal,
-    };
-  }, [closingAt, votingEnabled]);
+  const [timeLeft, setTimeLeft] = useState<TimeLeft>(() => computeTimeLeft(closingAt, votingEnabled));
 
   useEffect(() => {
-    setTimeLeft(calculateTimeLeft());
-    const timer = setInterval(() => setTimeLeft(calculateTimeLeft()), 1000);
+    setTimeLeft(calc());
+
+    if (loading || !closingAt || !votingEnabled || Number.isNaN(closingAt.getTime())) {
+      return;
+    }
+
+    const timer = setInterval(() => setTimeLeft(calc()), 1000);
     return () => clearInterval(timer);
-  }, [calculateTimeLeft]);
+  }, [calc, closingAt, votingEnabled, loading]);
+
+  if (loading || !closingAt || Number.isNaN(closingAt.getTime())) {
+    return (
+      <div className="bg-indigo-600 text-indigo-50 p-8 rounded-[2.5rem] border-b-8 border-indigo-800 shadow-xl flex flex-col items-center mb-8 min-h-[200px] justify-center">
+        <Loader2 className="w-10 h-10 animate-spin mb-3 opacity-80" />
+        <p className="font-black text-sm uppercase tracking-widest opacity-80">Cargando cuenta regresiva...</p>
+      </div>
+    );
+  }
 
   const getTheme = () => {
     if (timeLeft.isExpired) {
@@ -120,9 +146,11 @@ export default function CountdownBanner({ closingAt, votingEnabled = true }: Cou
         ].map(block => (
           <div
             key={block.label}
-            className="flex flex-col items-center bg-black/10 rounded-[1.5rem] py-4 border border-white/10 backdrop-blur-sm"
+            className="flex flex-col items-center bg-black/10 rounded-[1.5rem] py-4 border border-white/10 backdrop-blur-sm min-w-[4rem]"
           >
-            <span className="text-2xl sm:text-4xl font-black tabular-nums">{block.value}</span>
+            <span className="text-2xl sm:text-4xl font-black tabular-nums leading-none">
+              {String(block.value).padStart(2, '0')}
+            </span>
             <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-widest opacity-60 mt-1">
               {block.label}
             </span>

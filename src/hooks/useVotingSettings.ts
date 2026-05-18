@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import {
   AjustesVotacion,
+  DEFAULT_CLOSING_DATE,
+  DEFAULT_CLOSING_TIME,
   isPastClosing,
   parseClosingDateTime,
 } from '../lib/votingSettings';
@@ -34,8 +36,8 @@ async function syncVotingState(): Promise<AjustesVotacion | null> {
     data = fallback.data
       ? {
           ...fallback.data,
-          closing_date: '2026-05-20',
-          closing_time: '18:00:00',
+          closing_date: DEFAULT_CLOSING_DATE,
+          closing_time: DEFAULT_CLOSING_TIME,
         }
       : null;
   }

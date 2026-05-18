@@ -4,6 +4,7 @@ import FingerprintJS from '@fingerprintjs/fingerprintjs';
 import CountdownBanner from '../ui/components/CountdownBanner';
 import OfficialResultsScreen from '../ui/components/OfficialResultsScreen';
 import { useVotingSettings } from '../hooks/useVotingSettings';
+import { fetchOfficialTeachers, type OfficialTeacher } from '../lib/teachers';
 import { supabase } from '../lib/supabase';
 
 // Categorías con colores vibrantes y divertidos
@@ -81,10 +82,11 @@ const PublicVoting: React.FC = () => {
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [dbError, setDbError] = useState<string | null>(null);
   const { votingEnabled, closingAt, closingDate, closingTime, loading: loadingVoting } = useVotingSettings();
-  
+
   const [teacherName, setTeacherName] = useState('');
   const [reason, setReason] = useState('');
-  const [officialTeachers, setOfficialTeachers] = useState<any[]>([]);
+  const [officialTeachers, setOfficialTeachers] = useState<OfficialTeacher[]>([]);
+  const [teachersLoading, setTeachersLoading] = useState(true);
   const [winners, setWinners] = useState<any[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -115,16 +117,17 @@ const PublicVoting: React.FC = () => {
 
   const fetchInitialData = useCallback(async () => {
     setIsLoadingData(true);
+    setTeachersLoading(true);
     try {
-      const { data: teachersData } = await supabase.from('teachers').select('nombre_oficial');
-      setOfficialTeachers(teachersData ?? []);
-      
+      const teachersData = await fetchOfficialTeachers();
+      setOfficialTeachers(teachersData);
       await fetchWinners();
     } catch (error) {
       console.error('Initial data error:', error);
       setDbError('Error de conexión');
     } finally {
       setIsLoadingData(false);
+      setTeachersLoading(false);
     }
   }, [fetchWinners]);
 
@@ -190,27 +193,26 @@ const PublicVoting: React.FC = () => {
   };
 
   const suggestions = React.useMemo(() => {
-    if (!teacherName.trim() || teacherName.length < 2) return [];
+    if (!teacherName.trim() || teacherName.length < 2 || officialTeachers.length === 0) return [];
     const normalizedInput = normalizarNombre(teacherName);
-    return officialTeachers.map(t => {
-      const name = t.nombre_oficial;
-      const norm = normalizarNombre(name);
-      let score = 0;
-      if (norm === normalizedInput) score += 100;
-      if (norm.startsWith(normalizedInput)) score += 50;
-      if (norm.includes(normalizedInput)) score += 20;
-      return { name, score };
-    }).filter(t => t.score > 0).sort((a, b) => b.score - a.score).slice(0, 6);
+    return officialTeachers
+      .map(t => {
+        const name = t.nombre_oficial;
+        const norm = normalizarNombre(name);
+        let score = 0;
+        if (norm === normalizedInput) score += 100;
+        if (norm.startsWith(normalizedInput)) score += 50;
+        if (norm.includes(normalizedInput)) score += 20;
+        const inputWords = normalizedInput.split(' ').filter(w => w.length > 1);
+        for (const word of inputWords) {
+          if (norm.includes(word)) score += 10;
+        }
+        return { name, score };
+      })
+      .filter(t => t.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 6);
   }, [teacherName, officialTeachers]);
-
-  if (loadingVoting) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-indigo-50">
-        <Loader2 className="w-12 h-12 text-indigo-500 animate-spin mb-4" />
-        <p className="text-indigo-600 font-bold">Cargando votación...</p>
-      </div>
-    );
-  }
 
   return (
     <>
@@ -242,7 +244,11 @@ const PublicVoting: React.FC = () => {
             </header>
 
             <div className="mb-12">
-              <CountdownBanner closingAt={closingAt} votingEnabled={votingEnabled} />
+              <CountdownBanner
+                closingAt={closingAt}
+                votingEnabled={votingEnabled}
+                loading={loadingVoting}
+              />
             </div>
 
             {currentView !== 'voting' && (
@@ -293,17 +299,27 @@ const PublicVoting: React.FC = () => {
                               className="w-full text-lg px-6 py-4 rounded-2xl bg-indigo-50 border-2 border-indigo-100 focus:border-indigo-400 focus:bg-white outline-none transition-all placeholder:text-indigo-300 font-semibold text-indigo-900 shadow-inner pr-12" required disabled={isSubmitting} autoComplete="off" />
                             <div className="absolute right-4 top-1/2 -translate-y-1/2 text-indigo-200 group-focus-within:text-indigo-400 transition-colors"><BookOpen size={24} /></div>
                           </div>
+                          {teachersLoading && (
+                            <p className="mt-2 text-sm text-indigo-400 font-medium flex items-center gap-2">
+                              <Loader2 size={16} className="animate-spin" /> Cargando maestros...
+                            </p>
+                          )}
                           {showSuggestions && suggestions.length > 0 && (
                             <div className="absolute z-[60] left-0 right-0 mt-2 bg-white rounded-2xl shadow-2xl border-2 border-indigo-100 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
                               <ul className="max-h-60 overflow-y-auto py-1">
-                                {suggestions.map((suggestion, idx) => (
-                                  <li key={idx}><button type="button" onClick={() => { setTeacherName(suggestion.name); setShowSuggestions(false); }} className="w-full text-left px-5 py-3.5 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-between group/item">
+                                {suggestions.map((suggestion) => (
+                                  <li key={suggestion.name}><button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { setTeacherName(suggestion.name); setShowSuggestions(false); }} className="w-full text-left px-5 py-3.5 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-between group/item">
                                     <div className="flex flex-col"><span className="font-bold text-indigo-900 group-hover/item:text-white transition-colors">{suggestion.name}</span><span className="text-xs text-indigo-400 group-hover/item:text-indigo-100 font-medium">Maestro Oficial</span></div>
                                     <Medal size={18} className="text-indigo-200 group-hover/item:text-yellow-300 transition-colors" />
                                   </button></li>
                                 ))}
                               </ul>
                             </div>
+                          )}
+                          {!teachersLoading && officialTeachers.length === 0 && teacherName.length >= 2 && (
+                            <p className="mt-2 text-sm text-amber-600 font-medium">
+                              No se encontraron maestros en la base de datos.
+                            </p>
                           )}
                         </div>
                         <div>

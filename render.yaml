@@ -1,0 +1,12 @@
+# Render — sitio estático con React Router (SPA)
+# Todas las rutas (/login, /admin, etc.) deben servir index.html
+services:
+  - type: web
+    name: app-encuesta
+    runtime: static
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
