@@ -4,7 +4,7 @@ import FingerprintJS from '@fingerprintjs/fingerprintjs';
 import CountdownBanner from '../ui/components/CountdownBanner';
 import OfficialResultsScreen from '../ui/components/OfficialResultsScreen';
 import { useVotingSettings } from '../hooks/useVotingSettings';
-import { fetchOfficialTeachers, type OfficialTeacher } from '../lib/teachers';
+import { searchOfficialTeachers, type OfficialTeacher } from '../lib/teachers';
 import { supabase } from '../lib/supabase';
 
 // Categorías con colores vibrantes y divertidos
@@ -46,7 +46,7 @@ function normalizarNombre(nombre: string) {
 }
 
 // Función para coincidencia inteligente
-const findOfficialTeacher = (inputName: string, officialTeachers: any[]) => {
+const findOfficialTeacher = (inputName: string, officialTeachers: OfficialTeacher[]) => {
   const normalizedInput = normalizarNombre(inputName);
   if (!normalizedInput || !officialTeachers || officialTeachers.length === 0) return inputName.trim().replace(/\b\w/g, l => l.toUpperCase());
 
@@ -55,10 +55,10 @@ const findOfficialTeacher = (inputName: string, officialTeachers: any[]) => {
   const inputWords = normalizedInput.split(' ').filter(w => w.length > 2);
 
   for (const teacher of officialTeachers) {
-    const officialNorm = normalizarNombre(teacher.nombre_oficial);
+    const officialNorm = normalizarNombre(teacher.officialName);
     let score = 0;
 
-    if (officialNorm === normalizedInput) return teacher.nombre_oficial;
+    if (officialNorm === normalizedInput) return teacher.officialName;
     if (officialNorm.includes(normalizedInput) || normalizedInput.includes(officialNorm)) score += 10;
 
     const officialWords = officialNorm.split(' ');
@@ -70,7 +70,7 @@ const findOfficialTeacher = (inputName: string, officialTeachers: any[]) => {
 
     if (score > maxScore && score >= 2) {
       maxScore = score;
-      bestMatch = teacher.nombre_oficial;
+      bestMatch = teacher.officialName;
     }
   }
   return bestMatch || inputName.trim().replace(/\b\w/g, l => l.toUpperCase());
@@ -88,7 +88,7 @@ const PublicVoting: React.FC = () => {
   const [teacherName, setTeacherName] = useState('');
   const [reason, setReason] = useState('');
   const [officialTeachers, setOfficialTeachers] = useState<OfficialTeacher[]>([]);
-  const [teachersLoading, setTeachersLoading] = useState(true);
+  const [teachersLoading, setTeachersLoading] = useState(false);
   const [winners, setWinners] = useState<any[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -117,24 +117,14 @@ const PublicVoting: React.FC = () => {
     }
   }, []);
 
-  const fetchInitialData = useCallback(async () => {
-    setIsLoadingData(true);
-    setTeachersLoading(true);
-    try {
-      const teachersData = await fetchOfficialTeachers();
-      setOfficialTeachers(teachersData);
-      await fetchWinners();
-    } catch (error) {
-      console.error('Initial data error:', error);
-      setDbError('Error de conexión');
-    } finally {
-      setIsLoadingData(false);
-      setTeachersLoading(false);
-    }
-  }, [fetchWinners]);
-
   useEffect(() => {
-    fetchInitialData();
+    const loadWinners = async () => {
+      setIsLoadingData(true);
+      await fetchWinners();
+      setIsLoadingData(false);
+    };
+
+    loadWinners();
 
     const channel = supabase.channel('public-realtime')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'teacher_votes' }, () => fetchWinners())
@@ -144,7 +134,32 @@ const PublicVoting: React.FC = () => {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [fetchInitialData, fetchWinners]);
+  }, [fetchWinners]);
+
+  useEffect(() => {
+    const handler = window.setTimeout(async () => {
+      if (!teacherName.trim() || teacherName.length < 2) {
+        setOfficialTeachers([]);
+        setTeachersLoading(false);
+        return;
+      }
+
+      setTeachersLoading(true);
+      try {
+        const results = await searchOfficialTeachers(teacherName);
+        setOfficialTeachers(results);
+      } catch (error) {
+        console.error('searchOfficialTeachers error:', error);
+        setOfficialTeachers([]);
+      } finally {
+        setTeachersLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      window.clearTimeout(handler);
+    };
+  }, [teacherName]);
 
   const handleSubmitVote = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -199,7 +214,7 @@ const PublicVoting: React.FC = () => {
     const normalizedInput = normalizarNombre(teacherName);
     return officialTeachers
       .map((t) => {
-        const name = t.nombre_oficial;
+        const name = t.officialName;
         const norm = normalizarNombre(name);
         let score = 0;
 
@@ -213,11 +228,11 @@ const PublicVoting: React.FC = () => {
           if (word.startsWith(norm) || norm.startsWith(word)) score += 8;
         }
 
-        return { name, score };
+        return { id: t.id, name, score };
       })
       .filter((t) => t.score > 0)
       .sort((a, b) => b.score - a.score)
-      .slice(0, 6);
+      .slice(0, 8);
   }, [teacherName, officialTeachers]);
 
   return (
@@ -315,7 +330,7 @@ const PublicVoting: React.FC = () => {
                               {suggestions.length > 0 ? (
                                 <ul className="max-h-60 overflow-y-auto py-1">
                                   {suggestions.map((suggestion) => (
-                                    <li key={suggestion.name}><button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { setTeacherName(suggestion.name); setShowSuggestions(false); }} className="w-full text-left px-5 py-3.5 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-between group/item">
+                                    <li key={suggestion.id}><button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { setTeacherName(suggestion.name); setShowSuggestions(false); }} className="w-full text-left px-5 py-3.5 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-between group/item">
                                       <div className="flex flex-col"><span className="font-bold text-indigo-900 group-hover/item:text-white transition-colors">{suggestion.name}</span><span className="text-xs text-indigo-400 group-hover/item:text-indigo-100 font-medium">Maestro Oficial</span></div>
                                       <Medal size={18} className="text-indigo-200 group-hover/item:text-yellow-300 transition-colors" />
                                     </button></li>
