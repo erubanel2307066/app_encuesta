@@ -28,6 +28,8 @@ const CATEGORY_LABELS: Record<string, string> = {
 function normalizarNombre(nombre: string) {
   if (!nombre) return '';
   return nombre
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
     .toLowerCase()
     .replace(/mtro\.?/gi, '')
     .replace(/mtra\.?/gi, '')
@@ -38,7 +40,7 @@ function normalizarNombre(nombre: string) {
     .replace(/profe/gi, '')
     .replace(/profesor/gi, '')
     .replace(/\(.*?\)/g, '')
-    .replace(/[^\w\s]/g, '')
+    .replace(/[^a-z0-9\s]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -196,20 +198,24 @@ const PublicVoting: React.FC = () => {
     if (!teacherName.trim() || teacherName.length < 2 || officialTeachers.length === 0) return [];
     const normalizedInput = normalizarNombre(teacherName);
     return officialTeachers
-      .map(t => {
+      .map((t) => {
         const name = t.nombre_oficial;
         const norm = normalizarNombre(name);
         let score = 0;
+
         if (norm === normalizedInput) score += 100;
-        if (norm.startsWith(normalizedInput)) score += 50;
-        if (norm.includes(normalizedInput)) score += 20;
-        const inputWords = normalizedInput.split(' ').filter(w => w.length > 1);
+        if (norm.startsWith(normalizedInput)) score += 60;
+        if (norm.includes(normalizedInput)) score += 30;
+
+        const inputWords = normalizedInput.split(' ').filter((w) => w.length > 1);
         for (const word of inputWords) {
-          if (norm.includes(word)) score += 10;
+          if (norm.includes(word)) score += 12;
+          if (word.startsWith(norm) || norm.startsWith(word)) score += 8;
         }
+
         return { name, score };
       })
-      .filter(t => t.score > 0)
+      .filter((t) => t.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, 6);
   }, [teacherName, officialTeachers]);
@@ -304,16 +310,20 @@ const PublicVoting: React.FC = () => {
                               <Loader2 size={16} className="animate-spin" /> Cargando maestros...
                             </p>
                           )}
-                          {showSuggestions && suggestions.length > 0 && (
+                          {showSuggestions && (
                             <div className="absolute z-[60] left-0 right-0 mt-2 bg-white rounded-2xl shadow-2xl border-2 border-indigo-100 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-                              <ul className="max-h-60 overflow-y-auto py-1">
-                                {suggestions.map((suggestion) => (
-                                  <li key={suggestion.name}><button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { setTeacherName(suggestion.name); setShowSuggestions(false); }} className="w-full text-left px-5 py-3.5 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-between group/item">
-                                    <div className="flex flex-col"><span className="font-bold text-indigo-900 group-hover/item:text-white transition-colors">{suggestion.name}</span><span className="text-xs text-indigo-400 group-hover/item:text-indigo-100 font-medium">Maestro Oficial</span></div>
-                                    <Medal size={18} className="text-indigo-200 group-hover/item:text-yellow-300 transition-colors" />
-                                  </button></li>
-                                ))}
-                              </ul>
+                              {suggestions.length > 0 ? (
+                                <ul className="max-h-60 overflow-y-auto py-1">
+                                  {suggestions.map((suggestion) => (
+                                    <li key={suggestion.name}><button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { setTeacherName(suggestion.name); setShowSuggestions(false); }} className="w-full text-left px-5 py-3.5 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-between group/item">
+                                      <div className="flex flex-col"><span className="font-bold text-indigo-900 group-hover/item:text-white transition-colors">{suggestion.name}</span><span className="text-xs text-indigo-400 group-hover/item:text-indigo-100 font-medium">Maestro Oficial</span></div>
+                                      <Medal size={18} className="text-indigo-200 group-hover/item:text-yellow-300 transition-colors" />
+                                    </button></li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <div className="py-4 px-5 text-sm text-slate-600">No se encontró ningún maestro con ese nombre.</div>
+                              )}
                             </div>
                           )}
                           {!teachersLoading && officialTeachers.length === 0 && teacherName.length >= 2 && (
