@@ -2,6 +2,7 @@ import React, { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import ProtectedRoute from './components/ProtectedRoute';
 import ErrorBoundary from './components/ErrorBoundary';
+import { AuthProvider } from './hooks/useAuth';
 import { Loader2 } from 'lucide-react';
 
 // Lazy load de todas las rutas — cada vista se descarga solo cuando se visita
@@ -28,6 +29,7 @@ function App() {
       </div>
     }>
       <Router>
+        <AuthProvider>
         <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/"      element={<PublicVoting />} />
@@ -43,6 +45,7 @@ function App() {
             <Route path="*" element={<PublicVoting />} />
           </Routes>
         </Suspense>
+        </AuthProvider>
       </Router>
     </ErrorBoundary>
   );

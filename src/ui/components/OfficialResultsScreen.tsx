@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Trophy, Medal, Crown, Star, Users, Calendar, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { formatClosingDisplay } from '../../lib/votingSettings';
 
 interface Winner {
   category_id: string;
@@ -12,57 +13,79 @@ interface Winner {
 interface OfficialResultsScreenProps {
   categories: any[];
   categoryLabels: Record<string, string>;
+  closingDate?: string | null;
+  closingTime?: string | null;
 }
 
-const OfficialResultsScreen: React.FC<OfficialResultsScreenProps> = ({ categories, categoryLabels }) => {
+const OfficialResultsScreen: React.FC<OfficialResultsScreenProps> = ({
+  categories,
+  categoryLabels,
+  closingDate,
+  closingTime,
+}) => {
   const [winners, setWinners] = useState<Winner[]>([]);
   const [totalVotes, setTotalVotes] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [closingDate, setClosingDate] = useState<string>('');
+  const [closingLabel, setClosingLabel] = useState('');
+
+  const fetchResults = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data: winnersData, error: winnersError } = await supabase
+        .from('category_winners')
+        .select('*');
+
+      if (winnersError) throw winnersError;
+      setWinners(winnersData || []);
+
+      const { count, error: countError } = await supabase
+        .from('teacher_votes')
+        .select('*', { count: 'exact', head: true });
+
+      if (!countError) setTotalVotes(count || 0);
+
+      if (closingDate) {
+        setClosingLabel(formatClosingDisplay(closingDate, closingTime));
+      } else {
+        const { data: ajustes } = await supabase
+          .from('ajustes')
+          .select('closing_date, closing_time, updated_at')
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (ajustes?.closing_date) {
+          setClosingLabel(formatClosingDisplay(ajustes.closing_date, ajustes.closing_time));
+        } else if (ajustes?.updated_at) {
+          setClosingLabel(
+            new Date(ajustes.updated_at).toLocaleString('es-MX', {
+              day: 'numeric',
+              month: 'long',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+            })
+          );
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching official results:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [closingDate, closingTime]);
 
   useEffect(() => {
-    const fetchResults = async () => {
-      setLoading(true);
-      try {
-        // 1. Obtener ganadores desde la vista (o calcularlos)
-        const { data: winnersData, error: winnersError } = await supabase
-          .from('category_winners')
-          .select('*');
-        
-        if (winnersError) throw winnersError;
-        setWinners(winnersData || []);
-
-        // 2. Obtener total de votos
-        const { count, error: countError } = await supabase
-          .from('teacher_votes')
-          .select('*', { count: 'exact', head: true });
-        
-        if (!countError) setTotalVotes(count || 0);
-
-        // 3. Obtener fecha de cierre desde settings
-        const { data: settingsData } = await supabase
-          .from('settings')
-          .select('updated_at')
-          .single();
-        
-        if (settingsData?.updated_at) {
-          setClosingDate(new Date(settingsData.updated_at).toLocaleDateString('es-MX', {
-            day: 'numeric',
-            month: 'long',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-          }));
-        }
-      } catch (error) {
-        console.error('Error fetching official results:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchResults();
-  }, []);
+
+    const channel = supabase
+      .channel('official-results')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'teacher_votes' }, () => fetchResults())
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'ajustes' }, () => fetchResults())
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchResults]);
 
   if (loading) {
     return (
@@ -80,13 +103,11 @@ const OfficialResultsScreen: React.FC<OfficialResultsScreenProps> = ({ categorie
 
   return (
     <div className="min-h-screen bg-[#020617] text-slate-200 relative overflow-hidden pb-24 selection:bg-indigo-500/30">
-      {/* Background Effects */}
       <div className="absolute top-[-100px] left-[-100px] w-96 h-96 bg-indigo-600/20 rounded-full mix-blend-screen filter blur-[100px] animate-blob"></div>
       <div className="absolute top-1/4 right-[-100px] w-96 h-96 bg-purple-600/20 rounded-full mix-blend-screen filter blur-[100px] animate-blob animation-delay-2000"></div>
       <div className="absolute bottom-1/4 left-1/4 w-96 h-96 bg-blue-600/20 rounded-full mix-blend-screen filter blur-[100px] animate-blob animation-delay-4000"></div>
 
       <div className="max-w-4xl mx-auto relative z-10 px-4 pt-12">
-        {/* Header Section */}
         <header className="text-center mb-16">
           <motion.div
             initial={{ opacity: 0, y: -20 }}
@@ -115,7 +136,6 @@ const OfficialResultsScreen: React.FC<OfficialResultsScreenProps> = ({ categorie
           </motion.p>
         </header>
 
-        {/* Stats Row */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -136,15 +156,14 @@ const OfficialResultsScreen: React.FC<OfficialResultsScreenProps> = ({ categorie
               <Calendar size={24} />
             </div>
             <div>
-              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Cierre de Resultados</p>
-              <p className="text-2xl font-black text-white">{closingDate || '15 Mayo 2026'}</p>
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Cierre de Votación</p>
+              <p className="text-xl sm:text-2xl font-black text-white">{closingLabel || 'Programado'}</p>
             </div>
           </div>
         </motion.div>
 
         {winners.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* Top 1 Highlight Card */}
             {topWinner && (
               <motion.div
                 initial={{ opacity: 0, scale: 0.9 }}
@@ -155,9 +174,8 @@ const OfficialResultsScreen: React.FC<OfficialResultsScreenProps> = ({ categorie
                 <div className="relative group overflow-hidden">
                   <div className="absolute inset-0 bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-yellow-500/20 blur-[50px] opacity-50 group-hover:opacity-100 transition-opacity"></div>
                   <div className="bg-slate-900/40 backdrop-blur-3xl p-10 rounded-[3rem] border-2 border-amber-500/30 relative z-10 shadow-2xl flex flex-col items-center text-center overflow-hidden">
-                    {/* Glow effect */}
                     <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-500 to-transparent"></div>
-                    
+
                     <div className="relative mb-8">
                       <div className="w-32 h-32 bg-amber-500/10 rounded-full flex items-center justify-center border-4 border-amber-500/30 shadow-[0_0_50px_rgba(245,158,11,0.2)] animate-pulse">
                         <Crown size={64} className="text-amber-400 drop-shadow-[0_0_10px_rgba(245,158,11,0.5)]" />
@@ -173,7 +191,7 @@ const OfficialResultsScreen: React.FC<OfficialResultsScreenProps> = ({ categorie
                     <h2 className="text-4xl sm:text-5xl font-black text-white tracking-tight mb-6 leading-tight">
                       {topWinner.maestro_oficial}
                     </h2>
-                    
+
                     <div className="flex items-center gap-6">
                       <div className="text-center">
                         <p className="text-2xl font-black text-white">{topWinner.votos}</p>
@@ -190,12 +208,11 @@ const OfficialResultsScreen: React.FC<OfficialResultsScreenProps> = ({ categorie
               </motion.div>
             )}
 
-            {/* Other Winners Grid */}
             <AnimatePresence>
               {sortedWinners.slice(1).map((winner, idx) => {
                 const category = categories.find(c => c.id === winner.category_id);
                 const Icon = category?.icon || Trophy;
-                
+
                 return (
                   <motion.div
                     key={winner.category_id}
@@ -222,9 +239,7 @@ const OfficialResultsScreen: React.FC<OfficialResultsScreenProps> = ({ categorie
                       </div>
 
                       <div className="flex-1 mb-8">
-                        <p className="text-2xl font-black text-white leading-tight">
-                          {winner.maestro_oficial}
-                        </p>
+                        <p className="text-2xl font-black text-white leading-tight">{winner.maestro_oficial}</p>
                       </div>
 
                       <div className="flex items-center justify-between border-t border-white/5 pt-6">

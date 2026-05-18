@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, memo } from 'react';
+import React, { useState, useMemo, useCallback, memo, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { useRealtimeStats } from '../../hooks/useRealtime';
 import { supabase } from '../../lib/supabase';
@@ -16,6 +16,7 @@ import Tilt from 'react-parallax-tilt';
 import CountUp from 'react-countup';
 import { cn } from '../../lib/utils';
 import ErrorBoundary from '../../components/ErrorBoundary';
+import AdminVotingSchedule from '../../ui/components/AdminVotingSchedule';
 
 const CATEGORY_LABELS: Record<string, string> = {
   best: "El/La Mejor",
@@ -41,10 +42,15 @@ const AdminDashboard: React.FC = () => {
   const toggleVoting = useCallback(async () => {
     setIsToggling(true);
     try {
+      if (!stats.ajustesId) throw new Error('Sin configuración de ajustes');
+
       const { error } = await supabase
-        .from('settings')
-        .update({ voting_enabled: !stats.votingEnabled })
-        .eq('id', (await supabase.from('settings').select('id').single()).data?.id);
+        .from('ajustes')
+        .update({
+          voting_enabled: !stats.votingEnabled,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', stats.ajustesId);
       
       if (error) throw error;
       refetch();
@@ -200,6 +206,17 @@ const AdminDashboard: React.FC = () => {
         </header>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar p-8 space-y-10">
+          {stats.ajustesId && (
+            <AdminVotingSchedule
+              ajustesId={stats.ajustesId}
+              closingDate={stats.closingDate}
+              closingTime={stats.closingTime}
+              closingAt={stats.closingAt}
+              votingEnabled={stats.votingEnabled}
+              onSaved={refetch}
+            />
+          )}
+
           {/* STATS GRID */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <KPIStore 
@@ -251,32 +268,7 @@ const AdminDashboard: React.FC = () => {
                 </div>
               </div>
 
-              <div className="h-[350px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={stats.votesByCategory.map(v => ({ name: CATEGORY_LABELS[v.id] || v.id, count: v.count, id: v.id }))}>
-                    <defs>
-                      {Object.keys(CATEGORY_COLORS).map(id => (
-                        <linearGradient key={`grad-${id}`} id={`color-${id}`} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={CATEGORY_COLORS[id]} stopOpacity={0.8}/>
-                          <stop offset="100%" stopColor={CATEGORY_COLORS[id]} stopOpacity={0.2}/>
-                        </linearGradient>
-                      ))}
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontWeight: 600, fontSize: 10}} />
-                    <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontWeight: 600, fontSize: 10}} />
-                    <Tooltip 
-                      content={<CustomTooltip />}
-                      cursor={{fill: 'rgba(255,255,255,0.03)'}}
-                    />
-                    <Bar dataKey="count" radius={[10, 10, 0, 0]} barSize={45}>
-                      {stats.votesByCategory.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={`url(#color-${entry.id})`} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+              <ParticipationChart votesByCategory={stats.votesByCategory} />
             </motion.div>
 
             {/* LIVE WINNERS */}
@@ -465,6 +457,59 @@ const WinnerItem = memo(({ winner, rank }: any) => {
       <div className="mt-3 h-0.5 bg-white/5 rounded-full overflow-hidden">
         <div className="h-full rounded-full w-full" style={{ backgroundColor: color, opacity: 0.4 }} />
       </div>
+    </div>
+  );
+});
+
+const ParticipationChart = memo(({ votesByCategory }: { votesByCategory: { id: string; count: number }[] }) => {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setReady(true));
+    return () => {
+      cancelAnimationFrame(frame);
+      setReady(false);
+    };
+  }, []);
+
+  const chartData = useMemo(
+    () => votesByCategory.map(v => ({
+      name: CATEGORY_LABELS[v.id] || v.id,
+      count: v.count,
+      id: v.id,
+    })),
+    [votesByCategory]
+  );
+
+  return (
+    <div className="h-[350px] w-full min-h-[350px]">
+      {!ready ? (
+        <div className="h-full flex items-center justify-center">
+          <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height="100%" debounce={50}>
+          <BarChart data={chartData}>
+            <defs>
+              {Object.keys(CATEGORY_COLORS).map(id => (
+                <linearGradient key={`grad-${id}`} id={`color-${id}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={CATEGORY_COLORS[id]} stopOpacity={0.8} />
+                  <stop offset="100%" stopColor={CATEGORY_COLORS[id]} stopOpacity={0.2} />
+                </linearGradient>
+              ))}
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
+            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontWeight: 600, fontSize: 10 }} />
+            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontWeight: 600, fontSize: 10 }} />
+            <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+            <Bar dataKey="count" radius={[10, 10, 0, 0]} barSize={45} isAnimationActive={false}>
+              {chartData.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={`url(#color-${entry.id})`} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      )}
     </div>
   );
 });

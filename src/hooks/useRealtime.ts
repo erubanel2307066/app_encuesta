@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { parseClosingDateTime } from '../lib/votingSettings';
 
 export const useRealtimeStats = () => {
   const [stats, setStats] = useState({
@@ -7,22 +8,25 @@ export const useRealtimeStats = () => {
     votesByCategory: [] as any[],
     recentActivity: [] as any[],
     winners: [] as any[],
-    votingEnabled: true
+    votingEnabled: true,
+    ajustesId: null as string | null,
+    closingDate: null as string | null,
+    closingTime: null as string | null,
+    closingAt: null as Date | null,
   });
   const [loading, setLoading] = useState(true);
 
   const fetchStats = useCallback(async () => {
     try {
-      // 1. Total Votes
+      const { error: rpcError } = await supabase.rpc('close_voting_if_expired');
+      if (rpcError) console.warn('close_voting_if_expired:', rpcError.message);
+
       const { count: totalVotes } = await supabase
         .from('teacher_votes')
         .select('*', { count: 'exact', head: true });
 
-      // 2. Votes by Category
-      const { data: categoryStats } = await supabase
-        .rpc('get_votes_by_category'); // Assuming we have or will create this RPC
+      const { data: categoryStats } = await supabase.rpc('get_votes_by_category');
 
-      // Fallback if RPC doesn't exist: manual aggregation from teacher_votes
       let votesByCategory = [];
       if (!categoryStats) {
         const { data: allVotes } = await supabase.from('teacher_votes').select('category_id');
@@ -35,30 +39,35 @@ export const useRealtimeStats = () => {
         votesByCategory = categoryStats;
       }
 
-      // 3. Recent Activity
       const { data: recentActivity } = await supabase
         .from('teacher_votes')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(10);
 
-      // 4. Winners (from view)
-      const { data: winners } = await supabase
-        .from('category_winners')
-        .select('*');
+      const { data: winners } = await supabase.from('category_winners').select('*');
 
-      // 5. Voting Enabled Setting
-      const { data: settings } = await supabase
-        .from('settings')
-        .select('voting_enabled')
-        .single();
+      const { data: ajustes } = await supabase
+        .from('ajustes')
+        .select('id, voting_enabled, closing_date, closing_time')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const closingAt = parseClosingDateTime(ajustes?.closing_date, ajustes?.closing_time);
+      const enabled = ajustes?.voting_enabled ?? true;
+      const pastDeadline = closingAt ? Date.now() >= closingAt.getTime() : false;
 
       setStats({
         totalVotes: totalVotes || 0,
         votesByCategory,
         recentActivity: recentActivity || [],
         winners: winners || [],
-        votingEnabled: settings?.voting_enabled ?? true
+        votingEnabled: enabled && !pastDeadline,
+        ajustesId: ajustes?.id ?? null,
+        closingDate: ajustes?.closing_date ?? null,
+        closingTime: ajustes?.closing_time ?? null,
+        closingAt,
       });
     } catch (error) {
       console.error('Error fetching dashboard stats:', error);
@@ -70,22 +79,16 @@ export const useRealtimeStats = () => {
   useEffect(() => {
     fetchStats();
 
-    // Subscribe to changes
     const channel = supabase
       .channel('admin-dashboard')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'teacher_votes' },
-        () => fetchStats()
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'settings' },
-        () => fetchStats()
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'teacher_votes' }, () => fetchStats())
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'ajustes' }, () => fetchStats())
       .subscribe();
 
+    const interval = setInterval(fetchStats, 15_000);
+
     return () => {
+      clearInterval(interval);
       supabase.removeChannel(channel);
     };
   }, [fetchStats]);

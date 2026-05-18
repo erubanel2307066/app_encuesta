@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../hooks/useAuth';
 import { Shield, Lock, Mail, Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
 
 const Login: React.FC = () => {
@@ -10,8 +11,15 @@ const Login: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
+  const { session, loading: authLoading } = useAuth();
 
-  const from = (location.state as any)?.from?.pathname || '/admin';
+  const from = (location.state as { from?: { pathname?: string } })?.from?.pathname || '/admin';
+
+  useEffect(() => {
+    if (!authLoading && session) {
+      navigate(from, { replace: true });
+    }
+  }, [authLoading, session, from, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -19,12 +27,18 @@ const Login: React.FC = () => {
     setError(null);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (error) throw error;
+
+      const activeSession = data.session ?? (await supabase.auth.getSession()).data.session;
+      if (!activeSession) {
+        throw new Error('No se pudo establecer la sesión. Intenta de nuevo.');
+      }
+
       navigate(from, { replace: true });
     } catch (err: any) {
       setError(err.message || 'Error al iniciar sesión');
@@ -32,6 +46,14 @@ const Login: React.FC = () => {
       setLoading(false);
     }
   };
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-indigo-50">
+        <Loader2 className="w-10 h-10 animate-spin text-indigo-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-indigo-50 flex items-center justify-center p-4 relative overflow-hidden">

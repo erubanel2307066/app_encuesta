@@ -3,6 +3,7 @@ import { Trophy, Smile, Shield, BookOpen, ClipboardCheck, Send, ArrowLeft, Spark
 import FingerprintJS from '@fingerprintjs/fingerprintjs';
 import CountdownBanner from '../ui/components/CountdownBanner';
 import OfficialResultsScreen from '../ui/components/OfficialResultsScreen';
+import { useVotingSettings } from '../hooks/useVotingSettings';
 import { supabase } from '../lib/supabase';
 
 // Categorías con colores vibrantes y divertidos
@@ -79,7 +80,7 @@ const PublicVoting: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [dbError, setDbError] = useState<string | null>(null);
-  const [votingEnabled, setVotingEnabled] = useState(true);
+  const { votingEnabled, closingAt, closingDate, closingTime, loading: loadingVoting } = useVotingSettings();
   
   const [teacherName, setTeacherName] = useState('');
   const [reason, setReason] = useState('');
@@ -118,9 +119,6 @@ const PublicVoting: React.FC = () => {
       const { data: teachersData } = await supabase.from('teachers').select('nombre_oficial');
       setOfficialTeachers(teachersData ?? []);
       
-      const { data: settings } = await supabase.from('settings').select('voting_enabled').single();
-      setVotingEnabled(settings?.voting_enabled ?? true);
-
       await fetchWinners();
     } catch (error) {
       console.error('Initial data error:', error);
@@ -135,12 +133,8 @@ const PublicVoting: React.FC = () => {
 
     const channel = supabase.channel('public-realtime')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'teacher_votes' }, () => fetchWinners())
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'settings' }, (payload: any) => {
-        const isEnabled = payload.new.voting_enabled;
-        setVotingEnabled(isEnabled);
-        if (!isEnabled) {
-          fetchWinners(); // Refresh winners when voting closes
-        }
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'ajustes' }, (payload: any) => {
+        if (!payload.new.voting_enabled) fetchWinners();
       })
       .subscribe();
 
@@ -178,7 +172,13 @@ const PublicVoting: React.FC = () => {
         device_fingerprint: visitorId
       }]);
 
-      if (error) throw error;
+      if (error) {
+        if (error.message?.includes('VOTING_CLOSED') || error.code === 'P0001') {
+          alert('La votación ha finalizado. Ya no se aceptan nuevos votos.');
+          return;
+        }
+        throw error;
+      }
       setShowSuccessModal(true);
       setTimeout(() => { setShowSuccessModal(false); setCurrentView('home'); }, 2500);
     } catch (error) {
@@ -202,6 +202,15 @@ const PublicVoting: React.FC = () => {
       return { name, score };
     }).filter(t => t.score > 0).sort((a, b) => b.score - a.score).slice(0, 6);
   }, [teacherName, officialTeachers]);
+
+  if (loadingVoting) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-indigo-50">
+        <Loader2 className="w-12 h-12 text-indigo-500 animate-spin mb-4" />
+        <p className="text-indigo-600 font-bold">Cargando votación...</p>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -233,7 +242,7 @@ const PublicVoting: React.FC = () => {
             </header>
 
             <div className="mb-12">
-              <CountdownBanner />
+              <CountdownBanner closingAt={closingAt} votingEnabled={votingEnabled} />
             </div>
 
             {currentView !== 'voting' && (
@@ -349,7 +358,12 @@ const PublicVoting: React.FC = () => {
           </div>
         </div>
       ) : (
-        <OfficialResultsScreen categories={CATEGORIES} categoryLabels={CATEGORY_LABELS} />
+        <OfficialResultsScreen
+          categories={CATEGORIES}
+          categoryLabels={CATEGORY_LABELS}
+          closingDate={closingDate}
+          closingTime={closingTime}
+        />
       )}
 
       {showSuccessModal && (
