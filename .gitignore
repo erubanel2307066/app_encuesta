@@ -24,3 +24,6 @@ dist-ssr
 *.sw?
 
 public/styles
+
+# Variables de entorno (usar .env.example como plantilla)
+.env
